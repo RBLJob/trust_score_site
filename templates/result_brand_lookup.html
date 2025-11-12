@@ -1,19 +1,19 @@
 <!DOCTYPE html>
 <html>
 <head>
- <title>Brand Lookup Result</title>
+ <title>Brand URL Lookup Result</title>
  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
  <style>
      body {
          font-family: 'Arial', sans-serif;
-         background-color: #F0F4F8;
-         padding: 0;
+         background-color: #f0f4f8;
          margin: 0;
+         padding: 0;
      }
      .container {
          background: white;
          width: 95%;
-         margin: auto;
+         margin: 20px auto;
          padding: 30px;
          border-radius: 12px;
          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -34,7 +34,7 @@
          width: 100%;
          border-collapse: collapse;
          font-size: 14px;
-         min-width: 1200px;
+         min-width: 1400px;
      }
      table, th, td {
          border: 1px solid #ddd;
@@ -46,12 +46,13 @@
      th {
          background-color: #0A152C;
          color: white;
+         white-space: nowrap;
      }
      tr:nth-child(even) {
-         background-color: #F9F9F9;
+         background-color: #f9f9f9;
      }
      tr:hover {
-         background-color: #F1F1F1;
+         background-color: #f1f1f1;
      }
      .button-container {
          text-align: center;
@@ -66,9 +67,90 @@
          border-radius: 6px;
          cursor: pointer;
          margin: 5px;
+         transition: background-color 0.3s ease;
      }
      .button-container button:hover {
          background-color: #081024;
+     }
+     .description-cell {
+         max-width: 250px;
+         overflow: hidden;
+         text-overflow: ellipsis;
+         white-space: nowrap;
+         cursor: help;
+         position: relative;
+     }
+     .description-cell:hover::after {
+         content: attr(data-full-text);
+         position: absolute;
+         left: 0;
+         top: 100%;
+         background: #333;
+         color: white;
+         padding: 10px;
+         border-radius: 5px;
+         z-index: 1000;
+         max-width: 400px;
+         white-space: normal;
+         box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+         margin-top: 5px;
+         font-size: 13px;
+         line-height: 1.4;
+     }
+     .contact-cell {
+         max-width: 200px;
+         overflow: hidden;
+         text-overflow: ellipsis;
+         white-space: nowrap;
+         cursor: help;
+         position: relative;
+     }
+     .contact-cell:hover::after {
+         content: attr(data-full-text);
+         position: absolute;
+         background: #333;
+         color: white;
+         padding: 8px 12px;
+         border-radius: 5px;
+         z-index: 1000;
+         white-space: nowrap;
+         box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+         margin-top: 5px;
+         font-size: 13px;
+     }
+     .rbl-brand-cell {
+         max-width: 150px;
+         overflow: hidden;
+         text-overflow: ellipsis;
+         white-space: nowrap;
+         cursor: help;
+         position: relative;
+     }
+     .rbl-brand-cell:hover::after {
+         content: attr(data-full-text);
+         position: absolute;
+         background: #333;
+         color: white;
+         padding: 8px 12px;
+         border-radius: 5px;
+         z-index: 1000;
+         white-space: normal;
+         box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+         margin-top: 5px;
+         font-size: 13px;
+         max-width: 300px;
+     }
+     .industry-vertical-cell {
+         min-width: 120px;
+         white-space: nowrap;
+     }
+     .business-model-cell {
+         min-width: 140px;
+         white-space: nowrap;
+     }
+     .company-vertical-cell {
+         min-width: 150px;
+         white-space: nowrap;
      }
  </style>
 </head>
@@ -76,50 +158,56 @@
  <div class="container">
      {% if error %}
          <h2 class="error">{{ error }}</h2>
+         <div class="button-container">
+             <button onclick="window.location.href='/'">Return to Search</button>
+         </div>
      {% else %}
-         <h3>Top Recommended Partners</h3>
+         <h2>Top Recommended Publishers ({{ publishers|length }})</h2>
+
          <div class="table-container">
              <table>
                  <tr>
                      <th>Partner Name</th>
-                     <th>Trust Score</th>
-                     <th>Age Rank</th>
-                     <th>Ahrefs DR</th>
-                     <th>Semrush DR</th>
-                     <th>Moz DR</th>
+                     <th>Trust Partner Score</th>
+                     <th>Avg. Ahrefs</th>
+                     <th>Avg. Moz</th>
+                     <th>Avg. Semrush</th>
                      <th>URL</th>
-                     <th>Contact Name</th>
-                     <th>Email</th>
-                     <th>Work</th>
-                     <th>Cell</th>
-                     <th>Pub Category</th>
-                     <th>Advertiser Type</th>
+                     <th style="min-width: 200px;">Contact</th>
+                     <th>Description</th>
+                     <th style="min-width: 120px;">Industry Vertical</th>
+                     <th style="min-width: 140px;">Business Model</th>
+                     <th style="min-width: 150px;">Company Vertical</th>
+                     <th style="min-width: 150px;">RBL Brand</th>
                  </tr>
                  {% for pub in publishers %}
                  <tr>
-                     <td>{{ pub['partner name'] }}</td>
-                     <td>{{ pub['trust score rating'] }}</td>
-                     <td>{{ pub['age rank'] }}</td>
-                     <td>{{ pub['ahrefs dr'] }}</td>
-                     <td>{{ pub['semrush dr'] }}</td>
-                     <td>{{ pub['moz dr'] }}</td>
-                     <td><a href="{{ pub['url'] }}" target="_blank">{{ pub['url'] }}</a></td>
-                     <td>{{ pub['contact name'] }}</td>
-                     <td>{{ pub['email'] }}</td>
-                     <td>{{ pub['work'] }}</td>
-                     <td>{{ pub['cell'] }}</td>
-                     <td>{{ pub['pub category'] }}</td>
-                     <td>{{ pub['advertiser type'] }}</td>
+                     <td>{{ pub['Clean Up Name'] }}</td>
+                     <td>{{ pub['TRUST SCORE RATING'] }}</td>
+                     <td>{{ pub['Estimated Avg. Ahrefs DR'] }}</td>
+                     <td>{{ pub['Estimated Avg. Moz DA'] }}</td>
+                     <td>{{ pub['Estimated Avg. Semrush AS'] }}</td>
+                     <td><a href="{{ pub['Website'] }}" target="_blank">{{ pub['Website'] }}</a></td>
+                     <td class="contact-cell" data-full-text="{{ pub['Associated Contact'] }}">{{ pub['Associated Contact'] }}</td>
+                     <td class="description-cell" data-full-text="{{ pub['Description'] }}">
+                         {{ pub['Description'][:50] }}{% if pub['Description']|length > 50 %}...{% endif %}
+                     </td>
+                     <td class="industry-vertical-cell">{{ pub['Industry Vertical'] }}</td>
+                     <td class="business-model-cell">{{ pub['Company Business Model'] }}</td>
+                     <td class="company-vertical-cell">{{ pub['Sub Company Vertical'] }}</td>
+                     <td class="rbl-brand-cell" data-full-text="{{ pub['RBL Brand'] }}">{{ pub['RBL Brand'] }}</td>
                  </tr>
                  {% endfor %}
              </table>
          </div>
+
          <div class="button-container">
              <button onclick="downloadCSV()">Download as CSV</button>
              <button onclick="window.location.href='/'">Return to Search</button>
          </div>
      {% endif %}
  </div>
+
  <script>
      function downloadCSV() {
          fetch('/download_csv', {
@@ -127,17 +215,21 @@
              headers: { 'Content-Type': 'application/json' },
              body: JSON.stringify({ publishers: {{ publishers|tojson }} })
          })
-         .then(response => response.blob())
+         .then(response => {
+             if (!response.ok) throw new Error('Failed to download CSV');
+             return response.blob();
+         })
          .then(blob => {
              const url = window.URL.createObjectURL(blob);
              const a = document.createElement('a');
              a.style.display = 'none';
              a.href = url;
-             a.download = 'recommended_partners.csv';
+             a.download = 'recommended_publishers.csv';
              document.body.appendChild(a);
              a.click();
              window.URL.revokeObjectURL(url);
-         });
+         })
+         .catch(error => console.error('Error downloading CSV:', error));
      }
  </script>
 </body>

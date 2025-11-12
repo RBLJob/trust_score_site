@@ -1,58 +1,82 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Publishers Report</title>
+    <title>Partners Report</title>
     <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #0A152C;
+            margin-bottom: 30px;
+        }
         table {
             width: 100%;
             border-collapse: collapse;
+            margin-bottom: 20px;
         }
         th, td {
             border: 1px solid #ddd;
             padding: 8px;
-            text-align: center;
+            text-align: left;
+            font-size: 10px;
         }
         th {
             background-color: #0A152C;
             color: white;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            font-size: 12px;
+            color: #666;
         }
     </style>
 </head>
 <body>
-    <h2>Publishers Report</h2>
+    <h1>Partners Report</h1>
     <table>
-        <tr>
-            <th>Partner Name</th>
-            <th>Trust Score Rating</th>
-            <th>Age Rank</th>
-            <th>Ahrefs DR</th>
-            <th>Semrush DR</th>
-            <th>Moz DR</th>
-            <th>URL</th>
-            <th>Contact Name</th>
-            <th>Email</th>
-            <th>Work</th>
-            <th>Cell</th>
-            <th>Pub Category</th>
-            <th>Advertiser Type</th>
-        </tr>
-        {% for pub in publishers %}
-        <tr>
-            <td>{{ pub['partner name'] }}</td>
-            <td>{{ pub['trust score rating'] }}</td>
-            <td>{{ pub['age rank'] }}</td>
-            <td>{{ pub['ahrefs dr'] }}</td>
-            <td>{{ pub['semrush dr'] }}</td>
-            <td>{{ pub['moz dr'] }}</td>
-            <td>{{ pub['url'] }}</td>
-            <td>{{ pub['contact name'] }}</td>
-            <td>{{ pub['email'] }}</td>
-            <td>{{ pub['work'] }}</td>
-            <td>{{ pub['cell'] }}</td>
-            <td>{{ pub['pub category'] }}</td>
-            <td>{{ pub['advertiser type'] }}</td>
-        </tr>
-        {% endfor %}
+        <thead>
+            <tr>
+                <th>Partner Name</th>
+                <th>Trust Score</th>
+                <th>Avg. Ahrefs</th>
+                <th>Avg. Moz</th>
+                <th>Avg. Semrush</th>
+                <th>URL</th>
+                <th>Contact</th>
+                <th>Industry Vertical</th>
+                <th>Business Model</th>
+                <th>Company Vertical</th>
+                <th>RBL Brand</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for publisher in publishers %}
+            <tr>
+                <td>{{ publisher['Partner Name'] }}</td>
+                <td>{{ publisher['Trust Score'] }}</td>
+                <td>{{ publisher['Avg. Ahrefs'] }}</td>
+                <td>{{ publisher['Avg. Moz'] }}</td>
+                <td>{{ publisher['Avg. Semrush'] }}</td>
+                <td>{{ publisher['URL'] }}</td>
+                <td>{{ publisher['Contact'] }}</td>
+                <td>{{ publisher['Industry Vertical'] }}</td>
+                <td>{{ publisher['Business Model'] }}</td>
+                <td>{{ publisher['Company Vertical'] }}</td>
+                <td>{{ publisher['RBL Brand'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
     </table>
+    <div class="footer">
+        Generated on {{ moment().format('MMMM Do YYYY, h:mm:ss a') }}
+    </div>
 </body>
 </html>

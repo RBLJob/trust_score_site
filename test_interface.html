@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interface Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f4f8;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            display: flex;
+            gap: 30px;
+            max-width: 1000px;
+            width: 100%;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            flex: 1;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            box-sizing: border-box;
+            margin-bottom: 20px;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            font-size: 16px;
+            background-color: #0A152C;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #081024;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h2>Trust Score Lookup</h2>
+            <input type="text" placeholder="Enter partner name...">
+            <button>Check Trust Score</button>
+        </div>
+        <div class="card">
+            <h2>Lookup by Brand URL</h2>
+            <input type="url" placeholder="Enter brand URL...">
+            <button>Find Publishers</button>
+        </div>
+    </div>
+</body>
+</html>

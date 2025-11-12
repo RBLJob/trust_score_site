@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trust Score Lookup</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f0f4f8;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            display: flex;
+            gap: 30px;
+            max-width: 1000px;
+            width: 100%;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            flex: 1;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 24px;
+        }
+        .input-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        input[type="text"], input[type="url"] {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            box-sizing: border-box;
+            transition: border-color 0.3s ease;
+        }
+        input[type="text"]:focus, input[type="url"]:focus {
+            outline: none;
+            border-color: #0A152C;
+            box-shadow: 0 0 0 3px rgba(10, 21, 44, 0.1);
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            font-size: 16px;
+            background-color: #0A152C;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #081024;
+        }
+        
+        /* Autocomplete Styles */
+        .autocomplete-suggestions {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: none;
+        }
+        .autocomplete-suggestion {
+            padding: 12px 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+            transition: background-color 0.2s ease;
+        }
+        .autocomplete-suggestion:hover, .autocomplete-suggestion.selected {
+            background-color: #f5f5f5;
+        }
+        .autocomplete-suggestion:last-child {
+            border-bottom: none;
+        }
+        .loading {
+            padding: 12px 15px;
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Trust Score Lookup Card -->
+        <div class="card">
+            <h2>Trust Score Lookup</h2>
+            <form action="/result" method="post">
+                <div class="input-container">
+                    <input type="text" name="Partner Name" placeholder="Enter partner name..." required autocomplete="off" id="partner-input">
+                    <div id="suggestions" class="autocomplete-suggestions"></div>
+                </div>
+                <button type="submit">Check Trust Score</button>
+            </form>
+        </div>
+
+        <!-- Brand URL Lookup Card -->
+        <div class="card">
+            <h2>Lookup by Brand URL</h2>
+            <form action="/publisher_lookup" method="post">
+                <input type="url" name="Brand URL" placeholder="Enter brand URL..." required>
+                <button type="submit">Find Publishers</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const partnerInput = document.getElementById('partner-input');
+            const suggestions = document.getElementById('suggestions');
+            let timeoutId;
+            let currentRequest = null;
+            const cache = new Map();
+
+            function showSuggestions(suggestionList) {
+                suggestions.innerHTML = '';
+                if (suggestionList.length === 0) {
+                    suggestions.style.display = 'none';
+                    return;
+                }
+
+                suggestionList.forEach(suggestion => {
+                    const div = document.createElement('div');
+                    div.className = 'autocomplete-suggestion';
+                    div.textContent = suggestion;
+                    div.addEventListener('click', function() {
+                        partnerInput.value = suggestion;
+                        suggestions.style.display = 'none';
+                    });
+                    suggestions.appendChild(div);
+                });
+
+                suggestions.style.display = 'block';
+            }
+
+            function showLoading() {
+                suggestions.innerHTML = '<div class="loading">Loading...</div>';
+                suggestions.style.display = 'block';
+            }
+
+            function hideSuggestions() {
+                setTimeout(() => {
+                    suggestions.style.display = 'none';
+                }, 200);
+            }
+
+            function fetchSuggestions(query) {
+                if (cache.has(query)) {
+                    showSuggestions(cache.get(query));
+                    return;
+                }
+
+                if (currentRequest) {
+                    currentRequest.abort();
+                }
+
+                showLoading();
+                currentRequest = new AbortController();
+                
+                fetch(`/autocomplete?query=${encodeURIComponent(query)}`, {
+                    signal: currentRequest.signal
+                })
+                .then(response => response.json())
+                .then(data => {
+                    cache.set(query, data);
+                    showSuggestions(data);
+                    currentRequest = null;
+                })
+                .catch(error => {
+                    if (error.name !== 'AbortError') {
+                        console.error('Autocomplete error:', error);
+                        suggestions.style.display = 'none';
+                    }
+                    currentRequest = null;
+                });
+            }
+
+            partnerInput.addEventListener('input', function() {
+                clearTimeout(timeoutId);
+                const query = this.value.trim();
+
+                if (query.length < 2) {
+                    suggestions.style.display = 'none';
+                    return;
+                }
+
+                timeoutId = setTimeout(() => {
+                    fetchSuggestions(query);
+                }, 150);
+            });
+
+            partnerInput.addEventListener('blur', hideSuggestions);
+            partnerInput.addEventListener('focus', function() {
+                const query = this.value.trim();
+                if (query.length >= 2) {
+                    fetchSuggestions(query);
+                }
+            });
+
+            partnerInput.addEventListener('keydown', function(e) {
+                const suggestionItems = suggestions.querySelectorAll('.autocomplete-suggestion');
+                let current = -1;
+
+                suggestionItems.forEach((item, index) => {
+                    if (item.classList.contains('selected')) {
+                        current = index;
+                    }
+                });
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    current = (current + 1) % suggestionItems.length;
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    current = current <= 0 ? suggestionItems.length - 1 : current - 1;
+                } else if (e.key === 'Enter' && current >= 0) {
+                    e.preventDefault();
+                    suggestionItems[current].click();
+                    return;
+                } else if (e.key === 'Escape') {
+                    suggestions.style.display = 'none';
+                    return;
+                }
+
+                suggestionItems.forEach((item, index) => {
+                    if (index === current) {
+                        item.classList.add('selected');
+                    } else {
+                        item.classList.remove('selected');
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
