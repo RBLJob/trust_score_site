@@ -1,276 +1,535 @@
 <!DOCTYPE html>
 <html>
 <head>
- <title>Trust Score Result</title>
- <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
- <style>
-     body {
-         font-family: 'Arial', sans-serif;
-         background-color: #f0f4f8;
-         margin: 0;
-         padding: 0;
-     }
-     .container {
-         background: white;
-         width: 95%;
-         margin: 20px auto;
-         padding: 30px;
-         border-radius: 12px;
-         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-     }
-     h2, h3 {
-         text-align: center;
-         color: #333;
-     }
-     .error {
-         color: red;
-         text-align: center;
-     }
-     .table-container {
-         overflow-x: auto;
-         margin-top: 20px;
-     }
-     table {
-         width: 100%;
-         border-collapse: collapse;
-         font-size: 14px;
-         min-width: 1400px;
-     }
-     table, th, td {
-         border: 1px solid #ddd;
-     }
-     th, td {
-         padding: 12px;
-         text-align: center;
-     }
-     th {
-         background-color: #0A152C;
-         color: white;
-         white-space: nowrap;
-     }
-     tr:nth-child(even) {
-         background-color: #f9f9f9;
-     }
-     tr:hover {
-         background-color: #f1f1f1;
-     }
-     .button-container {
-         text-align: center;
-         margin-top: 20px;
-     }
-     .button-container button {
-         padding: 10px 20px;
-         font-size: 16px;
-         background-color: #0A152C;
-         color: white;
-         border: none;
-         border-radius: 6px;
-         cursor: pointer;
-         margin: 5px;
-         transition: background-color 0.3s ease;
-     }
-     .button-container button:hover {
-         background-color: #081024;
-     }
-     .description-cell {
-         max-width: 250px;
-         overflow: hidden;
-         text-overflow: ellipsis;
-         white-space: nowrap;
-         cursor: help;
-         position: relative;
-     }
-     .description-cell:hover::after {
-         content: attr(data-full-text);
-         position: absolute;
-         left: 0;
-         top: 100%;
-         background: #333;
-         color: white;
-         padding: 10px;
-         border-radius: 5px;
-         z-index: 1000;
-         max-width: 400px;
-         white-space: normal;
-         box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-         margin-top: 5px;
-         font-size: 13px;
-         line-height: 1.4;
-     }
-     .contact-cell {
-         max-width: 200px;
-         overflow: hidden;
-         text-overflow: ellipsis;
-         white-space: nowrap;
-         cursor: help;
-     }
-     .contact-cell:hover::after {
-         content: attr(data-full-text);
-         position: absolute;
-         background: #333;
-         color: white;
-         padding: 8px 12px;
-         border-radius: 5px;
-         z-index: 1000;
-         white-space: nowrap;
-         box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-         margin-top: 5px;
-         font-size: 13px;
-     }
-     .rbl-brand-cell {
-         max-width: 150px;
-         overflow: hidden;
-         text-overflow: ellipsis;
-         white-space: nowrap;
-         cursor: help;
-         position: relative;
-     }
-     .rbl-brand-cell:hover::after {
-         content: attr(data-full-text);
-         position: absolute;
-         background: #333;
-         color: white;
-         padding: 8px 12px;
-         border-radius: 5px;
-         z-index: 1000;
-         white-space: normal;
-         box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-         margin-top: 5px;
-         font-size: 13px;
-         max-width: 300px;
-     }
-     .industry-vertical-cell {
-         min-width: 120px;
-         white-space: nowrap;
-     }
-     .business-model-cell {
-         min-width: 140px;
-         white-space: nowrap;
-     }
-     .company-vertical-cell {
-         min-width: 150px;
-         white-space: nowrap;
-     }
-     .trust-score-green {
-         color: #28a745;
-         font-weight: bold;
-     }
-     .trust-score-orange {
-         color: #fd7e14;
-         font-weight: bold;
-     }
-     .trust-score-red {
-         color: #dc3545;
-         font-weight: bold;
-     }
- </style>
+    <title>Trust Score Results</title>
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: radial-gradient(circle at center, #A04D1F 0%, #6B3410 50%, #2D1505 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: linear-gradient(135deg, rgba(10, 21, 44, 0.95) 0%, rgba(15, 32, 66, 0.95) 50%, rgba(5, 10, 22, 0.95) 100%);
+            padding: 20px 40px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .logo::before {
+            content: "🏢";
+            font-size: 1.5rem;
+        }
+
+        .logo-text {
+            color: white;
+            font-size: 1.125rem;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .main-container {
+            flex: 1;
+            padding: 40px 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .result-card {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #0A152C;
+            margin-bottom: 30px;
+            font-size: 32px;
+            font-weight: 600;
+        }
+
+        h2 {
+            color: #0A152C;
+            margin: 30px 0 20px 0;
+            font-size: 24px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .back-button {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #BD5D28 0%, #8B4513 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+
+        .back-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(139, 69, 19, 0.6);
+        }
+
+        .download-csv-btn {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #28a745 0%, #218838 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        .download-csv-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.6);
+        }
+
+        .trust-score-box {
+            background: linear-gradient(135deg, #BD5D28 0%, #8B4513 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .trust-score-box h3 {
+            font-size: 48px;
+            margin: 10px 0;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+            margin-top: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            min-width: 1200px;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #0A152C 0%, #1a2844 100%);
+            color: white;
+        }
+
+        th {
+            padding: 16px 12px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        td {
+            padding: 14px 12px;
+            border-bottom: 1px solid #e0e0e0;
+            font-size: 14px;
+            color: #333;
+            text-align: center;
+        }
+
+        /* Left align for specific columns */
+        .text-left {
+            text-align: left !important;
+        }
+
+        /* URL column wider */
+        .url-column {
+            min-width: 250px;
+            max-width: 350px;
+        }
+
+        tbody tr {
+            transition: background-color 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .url-link {
+            color: #0066cc;
+            text-decoration: none;
+            transition: color 0.2s ease;
+            word-break: break-word;
+            display: block;
+        }
+
+        .url-link:hover {
+            color: #004499;
+            text-decoration: underline;
+        }
+
+        /* Truncated text with better tooltip */
+        .truncate {
+            max-width: 200px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: help;
+            position: relative;
+            display: block;
+        }
+
+        .truncate-tooltip {
+            position: absolute;
+            visibility: hidden;
+            opacity: 0;
+            background: #1a2844;
+            color: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            white-space: normal;
+            width: 350px;
+            max-width: 90vw;
+            z-index: 1000;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+            font-size: 13px;
+            line-height: 1.6;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
+            left: 0;
+            top: 100%;
+            margin-top: 8px;
+        }
+
+        .truncate:hover .truncate-tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        /* Column header tooltip */
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 300px;
+            background-color: #1a2844;
+            color: #fff;
+            text-align: left;
+            border-radius: 8px;
+            padding: 12px;
+            position: absolute;
+            z-index: 1000;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -150px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 13px;
+            line-height: 1.6;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .tooltip .tooltiptext::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #1a2844 transparent transparent transparent;
+        }
+
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .tooltip-label {
+            border-bottom: 1px dotted #fff;
+        }
+
+        .error-message {
+            text-align: center;
+            color: #d32f2f;
+            padding: 40px;
+            font-size: 18px;
+        }
+
+        @media (max-width: 768px) {
+            .result-card {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            h2 {
+                font-size: 18px;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            table {
+                font-size: 12px;
+                min-width: 1000px;
+            }
+
+            th, td {
+                padding: 10px 8px;
+            }
+
+            .truncate {
+                max-width: 120px;
+            }
+
+            .truncate-tooltip {
+                width: 280px;
+            }
+
+            .url-column {
+                min-width: 200px;
+            }
+        }
+    </style>
 </head>
 <body>
- <div class="container">
-     {% if error %}
-         <h2 class="error">{{ error }}</h2>
-         <div class="button-container">
-             <button onclick="window.location.href='/'">Return to Search</button>
-         </div>
-     {% else %}
-         <h2>Partner Name: {{ partner_name }}</h2>
-         <h3>
-             Trust Partner Score:
-             <span class="{% if trust_score > 50 %}trust-score-green{% elif trust_score >= 30 %}trust-score-orange{% else %}trust-score-red{% endif %}">
-                 {{ trust_score | round(2) }}
-             </span>
-         </h3>
+    <div class="header">
+        <div class="logo-container">
+            <div class="logo"></div>
+            <div class="logo-text">ROUNDBARNLABS</div>
+        </div>
+    </div>
 
-         <h3>Affiliate Brands</h3>
-         <div class="table-container">
-             <table>
-                 <tr>
-                     <th>Affiliate Brand</th>
-                     <th>Revenue</th>
-                     <th>Actions</th>
-                     <th>Clicks</th>
-                     <th>CR%</th>
-                 </tr>
-                 {% for brand in affiliate_brands %}
-                 <tr>
-                     <td>{{ brand['Affiliate_Brand'] }}</td>
-                     <td>${{ brand['total_revenue'] | round(2) }}</td>
-                     <td>{{ brand['total_order_action'] }}</td>
-                     <td>{{ brand['total_clicks'] }}</td>
-                     <td>{{ brand['CR'] | round(2) }}%</td>
-                 </tr>
-                 {% endfor %}
-             </table>
-         </div>
+    <div class="main-container">
+        <div class="result-card">
+            <a href="/" class="back-button">← Back to Search</a>
+            
+            {% if error %}
+                <h1>Error</h1>
+                <p class="error-message">{{ error }}</p>
+            {% else %}
+                <h1>{{ partner_name }}</h1>
+                
+                <div class="trust-score-box">
+                    <p>Trust Partner Score</p>
+                    <h3>{{ "%.1f"|format(trust_score) }}</h3>
+                </div>
 
-         <h3>Top Similar Partners ({{ similar_partners|length }})</h3>
-         <div class="table-container">
-             <table>
-                 <tr>
-                     <th>Partner Name</th>
-                     <th>Trust Partner Score</th>
-                     <th>Avg. Ahrefs</th>
-                     <th>Avg. Moz</th>
-                     <th>Avg. Semrush</th>
-                     <th>URL</th>
-                     <th style="min-width: 200px;">Contact</th>
-                     <th>Description</th>
-                     <th style="min-width: 120px;">Industry Vertical</th>
-                     <th style="min-width: 140px;">Business Model</th>
-                     <th style="min-width: 150px;">Company Vertical</th>
-                     <th style="min-width: 150px;">RBL Brand</th>
-                 </tr>
-                 {% for pub in similar_partners %}
-                 <tr>
-                     <td>{{ pub['Clean Up Name'] }}</td>
-                     <td>{{ pub['TRUST SCORE RATING'] }}</td>
-                     <td>{{ pub['Estimated Avg. Ahrefs DR'] }}</td>
-                     <td>{{ pub['Estimated Avg. Moz DA'] }}</td>
-                     <td>{{ pub['Estimated Avg. Semrush AS'] }}</td>
-                     <td><a href="{{ pub['Website'] }}" target="_blank">{{ pub['Website'] }}</a></td>
-                     <td class="contact-cell" data-full-text="{{ pub['Associated Contact'] }}">{{ pub['Associated Contact'] }}</td>
-                     <td class="description-cell" data-full-text="{{ pub['Description'] }}">
-                         {{ pub['Description'][:50] }}{% if pub['Description']|length > 50 %}...{% endif %}
-                     </td>
-                     <td class="industry-vertical-cell">{{ pub['Industry Vertical'] }}</td>
-                     <td class="business-model-cell">{{ pub['Company Business Model'] }}</td>
-                     <td class="company-vertical-cell">{{ pub['Sub Company Vertical'] }}</td>
-                     <td class="rbl-brand-cell" data-full-text="{{ pub['RBL Brand'] }}">{{ pub['RBL Brand'] }}</td>
-                 </tr>
-                 {% endfor %}
-             </table>
-         </div>
+                {% if affiliate_brands and affiliate_brands|length > 0 %}
+                <h2>Affiliate Brands Performance</h2>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>BRAND</th>
+                                <th>TOTAL REVENUE</th>
+                                <th>TOTAL ORDERS</th>
+                                <th>TOTAL CLICKS</th>
+                                <th>CONVERSION RATE (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for brand in affiliate_brands %}
+                            <tr>
+                                <td>{{ brand['Affiliate_Brand'] }}</td>
+                                <td>${{ "{:,.2f}".format(brand['total_revenue']) }}</td>
+                                <td>{{ brand['total_order_action']|int }}</td>
+                                <td>{{ brand['total_clicks']|int }}</td>
+                                <td>{{ "%.2f"|format(brand['CR']) }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
 
-         <div class="button-container">
-             <button onclick="downloadCSV()">Download as CSV</button>
-             <button onclick="window.location.href='/'">Return to Search</button>
-         </div>
-     {% endif %}
- </div>
+                {% if similar_partners and similar_partners|length > 0 %}
+                <h2>
+                    Similar Publishers
+                    <button class="download-csv-btn" onclick="downloadCSV()">📥 Download CSV</button>
+                </h2>
+                <div class="table-wrapper">
+                    <table id="publishersTable">
+                        <thead>
+                            <tr>
+                                <th>
+                                    <span class="tooltip">
+                                        <span class="tooltip-label">PARTNER NAME</span>
+                                        <span class="tooltiptext">Publisher or partner company name</span>
+                                    </span>
+                                </th>
+                                <th>
+                                    <span class="tooltip">
+                                        <span class="tooltip-label">TRUST SCORE</span>
+                                        <span class="tooltiptext">
+                                            <strong>Trust Partner Score (0-100)</strong><br>
+                                            Overall trust rating combining all metrics.
+                                        </span>
+                                    </span>
+                                </th>
+                                <th>
+                                    <span class="tooltip">
+                                        <span class="tooltip-label">AVG. AHREFS</span>
+                                        <span class="tooltiptext">
+                                            <strong>Average Ahrefs DR</strong><br>
+                                            Domain Rating measuring backlink profile strength.
+                                        </span>
+                                    </span>
+                                </th>
+                                <th>
+                                    <span class="tooltip">
+                                        <span class="tooltip-label">AVG. MOZ</span>
+                                        <span class="tooltiptext">
+                                            <strong>Average Moz DA</strong><br>
+                                            Domain Authority measuring overall quality.
+                                        </span>
+                                    </span>
+                                </th>
+                                <th>
+                                    <span class="tooltip">
+                                        <span class="tooltip-label">AVG. SEMRUSH</span>
+                                        <span class="tooltiptext">
+                                            <strong>Average Semrush AS</strong><br>
+                                            Authority Score measuring domain trust.
+                                        </span>
+                                    </span>
+                                </th>
+                                <th class="url-column">URL</th>
+                                <th>CONTACT</th>
+                                <th>DESCRIPTION</th>
+                                <th>INDUSTRY VERTICAL</th>
+                                <th>BUSINESS MODEL</th>
+                                <th>COMPANY VERTICAL</th>
+                                <th>RBL BRAND</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for partner in similar_partners %}
+                            <tr>
+                                <td class="text-left">{{ partner['Clean Up Name'] }}</td>
+                                <td><strong>{{ "%.1f"|format(partner['TRUST SCORE RATING']) }}</strong></td>
+                                <td>{{ "%.1f"|format(partner['Estimated Avg. Ahrefs DR']) }}</td>
+                                <td>{{ "%.1f"|format(partner['Estimated Avg. Moz DA']) }}</td>
+                                <td>{{ "%.1f"|format(partner['Estimated Avg. Semrush AS']) }}</td>
+                                <td class="url-column">
+                                    {% if partner['Website'] %}
+                                        <a href="{% if not partner['Website'].startswith(('http://', 'https://')) %}https://{% endif %}{{ partner['Website'] }}" 
+                                           target="_blank" 
+                                           rel="noopener noreferrer"
+                                           class="url-link">
+                                            {{ partner['Website'] }}
+                                        </a>
+                                    {% endif %}
+                                </td>
+                                <td class="text-left">
+                                    {% if partner['Associated Contact'] %}
+                                        <div class="truncate" title="{{ partner['Associated Contact'] }}">
+                                            {{ partner['Associated Contact'] }}
+                                            <div class="truncate-tooltip">{{ partner['Associated Contact'] }}</div>
+                                        </div>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td class="text-left">
+                                    {% if partner['Description'] %}
+                                        <div class="truncate" title="{{ partner['Description'] }}">
+                                            {{ partner['Description'] }}
+                                            <div class="truncate-tooltip">{{ partner['Description'] }}</div>
+                                        </div>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>{{ partner['Industry Vertical'] }}</td>
+                                <td>{{ partner['Company Business Model'] }}</td>
+                                <td>{{ partner['Sub Company Vertical'] }}</td>
+                                <td>
+                                    {% if partner['RBL Brand'] %}
+                                        <div class="truncate" title="{{ partner['RBL Brand'] }}">
+                                            {{ partner['RBL Brand'] }}
+                                            <div class="truncate-tooltip">{{ partner['RBL Brand'] }}</div>
+                                        </div>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
 
- <script>
-     function downloadCSV() {
-         fetch('/download_csv', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ publishers: {{ similar_partners|tojson }} })
-         })
-         .then(response => {
-             if (!response.ok) throw new Error('Failed to download CSV');
-             return response.blob();
-         })
-         .then(blob => {
-             const url = window.URL.createObjectURL(blob);
-             const a = document.createElement('a');
-             a.style.display = 'none';
-             a.href = url;
-             a.download = 'similar_partners.csv';
-             document.body.appendChild(a);
-             a.click();
-             window.URL.revokeObjectURL(url);
-         })
-         .catch(error => console.error('Error downloading CSV:', error));
-     }
- </script>
+    <script>
+        function downloadCSV() {
+            const publishers = {{ similar_partners|tojson }};
+            
+            fetch('/download_csv', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ publishers: publishers })
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = 'similar_partners_{{ partner_name|replace(" ", "_") }}.csv';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            })
+            .catch(error => {
+                console.error('Error downloading CSV:', error);
+                alert('Failed to download CSV. Please try again.');
+            });
+        }
+    </script>
 </body>
 </html>
