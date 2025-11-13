@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify, make_response
 import pandas as pd
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2 import service_account
 import io
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -10,6 +10,9 @@ import requests
 from urllib.parse import urlparse
 import re
 import numpy as np
+import os
+import json
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -18,23 +21,65 @@ app = Flask(__name__)
 # -------------------------------
 SHEET_URL = 'https://docs.google.com/spreadsheets/d/1b4_yuhEeLN-u21KHLEJOenDa1EdG6iQXpUi8ASXYZHk/edit?gid=1170846120'
 WORKSHEET_NAME = 'Render Upload'
-cached_data = None
+
+# Cache configuration
+CACHE_DURATION = timedelta(minutes=30)
+cache_data = {
+    'data': None,
+    'timestamp': None,
+    'partner_names': None
+}
 
 # -------------------------------
 # Helper Functions
 # -------------------------------
 
+def get_google_credentials():
+    """Get Google credentials from environment variable or file"""
+    try:
+        # Try to get credentials from environment variable first (for Render)
+        creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+        
+        if creds_json:
+            print("✅ Using credentials from environment variable")
+            creds_dict = json.loads(creds_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                creds_dict,
+                scopes=["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+            )
+        else:
+            # Fall back to credentials.json file (for local development)
+            print("✅ Using credentials from credentials.json file")
+            credentials = service_account.Credentials.from_service_account_file(
+                "credentials.json",
+                scopes=["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+            )
+        
+        return credentials
+    
+    except Exception as e:
+        print(f"❌ Error loading credentials: {e}")
+        raise
+
+def is_cache_valid():
+    """Check if cache is still valid"""
+    if cache_data['data'] is None or cache_data['timestamp'] is None:
+        return False
+    
+    time_elapsed = datetime.now() - cache_data['timestamp']
+    return time_elapsed < CACHE_DURATION
+
 def get_sheet_data():
-    """Load data from Google Sheets and cache it"""
-    global cached_data
-    if cached_data is not None:
-        print("✅ Using cached data.")
-        return cached_data
+    """Load data from Google Sheets with caching (30 min)"""
+    # Check if cache is valid
+    if is_cache_valid():
+        print(f"✅ Using cached data (age: {(datetime.now() - cache_data['timestamp']).seconds}s)")
+        return cache_data['data']
     
     try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-        client = gspread.authorize(creds)
+        print("📡 Fetching fresh data from Google Sheets...")
+        credentials = get_google_credentials()
+        client = gspread.authorize(credentials)
         sheet = client.open_by_url(SHEET_URL).worksheet(WORKSHEET_NAME)
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
@@ -58,11 +103,21 @@ def get_sheet_data():
             if col in df.columns:
                 df[col] = df[col].fillna('')
         
-        cached_data = df
+        # Update cache
+        cache_data['data'] = df
+        cache_data['timestamp'] = datetime.now()
+        
+        # Cache partner names for autocomplete
+        cache_data['partner_names'] = df['Clean Up Name'].dropna().astype(str).unique().tolist()
+        
         return df
     
     except Exception as e:
         print(f"❌ Error loading Google Sheets data: {e}")
+        # Return cached data if available, even if expired
+        if cache_data['data'] is not None:
+            print("⚠️ Returning expired cache data due to error")
+            return cache_data['data']
         return pd.DataFrame()
 
 def create_weighted_content(row):
@@ -131,7 +186,6 @@ def extract_enhanced_content_from_url(url):
         json_ld_scripts = soup.find_all('script', type='application/ld+json')
         for script in json_ld_scripts[:3]:
             try:
-                import json
                 data = json.loads(script.string)
                 if isinstance(data, dict):
                     # Extract organization name and description
@@ -291,7 +345,7 @@ def deduplicate_publishers(publishers):
     
     if removed_duplicates:
         print(f"🔄 Deduplication removed {len(removed_duplicates)} duplicates:")
-        for msg in removed_duplicates:
+        for msg in removed_duplicates[:5]:  # Show first 5
             print(f"  - {msg}")
     
     return deduplicated
@@ -307,20 +361,28 @@ def index():
 
 @app.route('/autocomplete')
 def autocomplete():
-    """Autocomplete endpoint for partner names"""
+    """Autocomplete endpoint for partner names with caching and debouncing"""
     try:
-        df = get_sheet_data()
-        if df.empty:
-            return jsonify([])
-        
-        partner_names = df['Clean Up Name'].dropna().astype(str).unique().tolist()
         query = request.args.get('query', '').strip().lower()
         
-        if not query:
+        # Require at least 2 characters
+        if len(query) < 2:
             return jsonify([])
         
+        # Use cached partner names if available
+        if cache_data['partner_names'] is not None:
+            partner_names = cache_data['partner_names']
+        else:
+            df = get_sheet_data()
+            if df.empty:
+                return jsonify([])
+            partner_names = df['Clean Up Name'].dropna().astype(str).unique().tolist()
+        
+        # Filter suggestions
         suggestions = [name for name in partner_names if query in name.lower()]
-        return jsonify(suggestions[:10])
+        
+        # Limit to top 20 for performance
+        return jsonify(sorted(suggestions[:20]))
     
     except Exception as e:
         print(f"❌ Error in autocomplete: {e}")
@@ -565,4 +627,5 @@ def download_csv():
 # Run Application
 # -------------------------------
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    port = int(os.environ.get('PORT', 5001))
+    app.run(host='0.0.0.0', port=port, debug=False)
