@@ -225,12 +225,14 @@ def create_weighted_content(row):
     return ' '.join(content_parts)
 
 def extract_enhanced_content_from_url(url):
+    """Enhanced content extraction from URL with timeout handling"""
     try:
         url = resolve_shortened_url(url)
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        response = requests.get(url, timeout=15, headers=headers)
+        # Reduced timeout from 15 to 10 seconds
+        response = requests.get(url, timeout=10, headers=headers)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         page_text = soup.get_text()[:1000]
@@ -258,6 +260,9 @@ def extract_enhanced_content_from_url(url):
         final_content = ' '.join(content_parts)
         print(f"📄 Extracted {len(final_content)} characters from URL")
         return final_content
+    except requests.Timeout:
+        print(f"❌ Request timeout for URL: {url}")
+        return ""
     except Exception as e:
         print(f"❌ Error extracting content from URL: {e}")
         return ""
