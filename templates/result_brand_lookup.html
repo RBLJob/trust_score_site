@@ -61,9 +61,35 @@
         h1 {
             text-align: center;
             color: #0A152C;
-            margin-bottom: 30px;
+            margin-bottom: 10px;
             font-size: 32px;
             font-weight: 600;
+        }
+
+        /* 🆕 NEW: Brand URL subtitle styling */
+        .brand-url-subtitle {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 30px;
+            padding: 0 20px;
+        }
+
+        .brand-url-subtitle .url-label {
+            font-weight: 600;
+            color: #0A152C;
+        }
+
+        .brand-url-subtitle .brand-url-link {
+            color: #0066cc;
+            text-decoration: none;
+            word-break: break-all;
+            transition: color 0.2s ease;
+        }
+
+        .brand-url-subtitle .brand-url-link:hover {
+            color: #004499;
+            text-decoration: underline;
         }
 
         .back-button {
@@ -146,12 +172,10 @@
             text-align: center;
         }
 
-        /* Left align for specific columns */
         .text-left {
             text-align: left !important;
         }
 
-        /* URL column wider */
         .url-column {
             min-width: 250px;
             max-width: 350px;
@@ -182,7 +206,6 @@
             text-decoration: underline;
         }
 
-        /* Truncated text with better tooltip */
         .truncate {
             max-width: 200px;
             white-space: nowrap;
@@ -220,7 +243,6 @@
             opacity: 1;
         }
 
-        /* Column header tooltip */
         .tooltip {
             position: relative;
             display: inline-block;
@@ -290,6 +312,10 @@
                 font-size: 24px;
             }
 
+            .brand-url-subtitle {
+                font-size: 12px;
+            }
+
             table {
                 font-size: 12px;
                 min-width: 1000px;
@@ -331,9 +357,24 @@
             
             {% if error %}
                 <h1>Error</h1>
+                <!-- 🆕 NEW: Show brand URL even on error -->
+                {% if brand_url %}
+                <p class="brand-url-subtitle">
+                    <span class="url-label">Searched URL:</span> 
+                    <a href="{{ brand_url }}" target="_blank" rel="noopener noreferrer" class="brand-url-link">{{ brand_url }}</a>
+                </p>
+                {% endif %}
                 <p class="error-message">{{ error }}</p>
             {% elif publishers and publishers|length > 0 %}
                 <h1>Top Publishers Matched</h1>
+                
+                <!-- 🆕 NEW: Show brand URL below title -->
+                {% if brand_url %}
+                <p class="brand-url-subtitle">
+                    <span class="url-label">Searched URL:</span> 
+                    <a href="{{ brand_url }}" target="_blank" rel="noopener noreferrer" class="brand-url-link">{{ brand_url }}</a>
+                </p>
+                {% endif %}
                 
                 <div class="table-header-row">
                     <button class="download-csv-btn" onclick="downloadCSV()">📥 Download CSV</button>
@@ -452,6 +493,13 @@
                 </div>
             {% else %}
                 <h1>Top Publishers Matched</h1>
+                <!-- 🆕 NEW: Show brand URL even with no results -->
+                {% if brand_url %}
+                <p class="brand-url-subtitle">
+                    <span class="url-label">Searched URL:</span> 
+                    <a href="{{ brand_url }}" target="_blank" rel="noopener noreferrer" class="brand-url-link">{{ brand_url }}</a>
+                </p>
+                {% endif %}
                 <p class="no-results">
                     No publishers found for the provided brand URL. Please try a different URL or check if the URL is accessible.
                 </p>
