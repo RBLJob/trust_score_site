@@ -128,26 +128,27 @@ def get_sheet_data(force_refresh=False):
         print("📝 Building weighted content for TF-IDF...")
         df_filtered['weighted_content'] = df_filtered.apply(create_weighted_content, axis=1)
         df_filtered['partner_normalized'] = df_filtered['Clean Up Name'].str.strip().str.lower()
-        print("🤖 Building TF-IDF vectorizer and matrix (this runs ONCE per cache refresh)...")
+        print("🤖 Building TF-IDF vectorizer and matrix (optimized for memory)...")
         try:
+            # Reduce max_features to save memory
             vectorizer = TfidfVectorizer(
                 stop_words='english', 
-                max_features=2500,
-                ngram_range=(1, 3),
+                max_features=1000,  # Reduced from 2500
+                ngram_range=(1, 2),  # Reduced from (1, 3)
                 min_df=1,
                 max_df=0.90
             )
             tfidf_matrix = vectorizer.fit_transform(df_filtered['weighted_content'].fillna(''))
             cache_data['tfidf_vectorizer'] = vectorizer
             cache_data['tfidf_matrix'] = tfidf_matrix
-            cache_data['filtered_df'] = df_filtered
+            cache_data['filtered_df'] = df_filtered.copy()
             print(f"✅ TF-IDF matrix built and cached: {tfidf_matrix.shape}")
-            print(f"   This will make all searches INSTANT for the next 30 minutes!")
+            print(f"   Memory optimized for Render free tier!")
         except Exception as e:
             print(f"⚠️ Error building TF-IDF matrix: {e}")
             cache_data['tfidf_vectorizer'] = None
             cache_data['tfidf_matrix'] = None
-            cache_data['filtered_df'] = df_filtered
+            cache_data['filtered_df'] = df_filtered.copy()
         cache_data['data'] = df
         cache_data['timestamp'] = datetime.now()
         cache_data['partner_names'] = df['Clean Up Name'].dropna().astype(str).unique().tolist()
