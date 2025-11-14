@@ -13,6 +13,7 @@ import numpy as np
 import os
 import json
 from datetime import datetime, timedelta
+from langdetect import detect, LangDetectException
 
 app = Flask(__name__)
 
@@ -69,11 +70,51 @@ def is_cache_valid():
     time_elapsed = datetime.now() - cache_data['timestamp']
     return time_elapsed < CACHE_DURATION
 
-def get_sheet_data():
-    """Load data from Google Sheets with caching (30 min)"""
-    # Check if cache is valid
-    if is_cache_valid():
-        print(f"✅ Using cached data (age: {(datetime.now() - cache_data['timestamp']).seconds}s)")
+def is_english_text(text):
+    """
+    Detect if text is primarily in English
+    Returns True if English, False otherwise
+    """
+    if not text or len(text.strip()) < 10:
+        return False
+    
+    try:
+        detected_lang = detect(text)
+        is_eng = detected_lang == 'en'
+        if not is_eng:
+            print(f"🌐 Non-English text detected: {detected_lang}")
+        return is_eng
+    except LangDetectException:
+        # If detection fails, check for Latin characters
+        latin_chars = sum(1 for c in text if ord(c) < 128)
+        total_chars = len(text.strip())
+        return total_chars > 0 and (latin_chars / total_chars) >= 0.7
+
+def resolve_shortened_url(url, timeout=10):
+    """
+    Resolve shortened URLs (t.co, bit.ly, etc.) to their final destination
+    """
+    shortened_domains = ['t.co', 'bit.ly', 'tinyurl.com', 'goo.gl', 'ow.ly', 'buff.ly']
+    
+    try:
+        parsed = urlparse(url)
+        if any(domain in parsed.netloc for domain in shortened_domains):
+            print(f"🔗 Resolving shortened URL: {url}")
+            response = requests.head(url, allow_redirects=True, timeout=timeout)
+            resolved = response.url
+            print(f"✅ Resolved to: {resolved}")
+            return resolved
+    except Exception as e:
+        print(f"⚠️ Could not resolve shortened URL {url}: {e}")
+    
+    return url
+
+def get_sheet_data(force_refresh=False):
+    """Load data from Google Sheets with caching (30 min) and optional force refresh"""
+    # Check if cache is valid and force_refresh is False
+    if not force_refresh and is_cache_valid():
+        cache_age = (datetime.now() - cache_data['timestamp']).seconds
+        print(f"✅ Using cached data (age: {cache_age}s)")
         return cache_data['data']
     
     try:
@@ -110,6 +151,11 @@ def get_sheet_data():
         # Cache partner names for autocomplete
         cache_data['partner_names'] = df['Clean Up Name'].dropna().astype(str).unique().tolist()
         
+        if force_refresh:
+            print(f"🔄 Cache manually refreshed at {cache_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            print(f"🔄 Cache updated at {cache_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+        
         return df
     
     except Exception as e:
@@ -120,42 +166,200 @@ def get_sheet_data():
             return cache_data['data']
         return pd.DataFrame()
 
+def filter_quality_publishers(df):
+    """
+    Filter out publishers with poor data quality before matching.
+    Returns only publishers with valid, high-quality data.
+    ENHANCED with language detection and better validation.
+    """
+    if df.empty:
+        return df
+    
+    df_filtered = df.copy()
+    initial_count = len(df_filtered)
+    
+    # 1. Filter out rows with missing or invalid partner names
+    df_filtered = df_filtered[
+        df_filtered['Clean Up Name'].notna() & 
+        (df_filtered['Clean Up Name'].str.strip() != '')
+    ]
+    
+    # 2. Filter out partner names that are too long (likely corrupted data)
+    # Also filter names with no spaces (likely mangled)
+    df_filtered = df_filtered[
+        (df_filtered['Clean Up Name'].str.len() <= 75) &
+        (df_filtered['Clean Up Name'].str.contains(' ', na=False) | 
+         (df_filtered['Clean Up Name'].str.len() <= 20))  # Allow short single-word names
+    ]
+    
+    # 3. REQUIRED FIELDS - Must have ALL of these fields with valid data
+    required_fields = {
+        'TRUST SCORE RATING': lambda x: x > 0,
+        'Estimated Avg. Ahrefs DR': lambda x: x > 0,
+        'Estimated Avg. Moz DA': lambda x: x > 0,
+        'Estimated Avg. Semrush AS': lambda x: x > 0,
+        'Website': lambda x: pd.notna(x) and str(x).strip() != '',
+        'Associated Contact': lambda x: pd.notna(x) and str(x).strip() != '',
+        'Description': lambda x: pd.notna(x) and str(x).strip() != '',
+        'Industry Vertical': lambda x: pd.notna(x) and str(x).strip() != '',
+        'Company Business Model': lambda x: pd.notna(x) and str(x).strip() != '',
+        'Sub Company Vertical': lambda x: pd.notna(x) and str(x).strip() != ''
+    }
+    
+    # Apply required field filters
+    for field, validator in required_fields.items():
+        if field in df_filtered.columns:
+            before_count = len(df_filtered)
+            df_filtered = df_filtered[df_filtered[field].apply(validator)]
+            removed = before_count - len(df_filtered)
+            if removed > 0:
+                print(f"   🔍 Removed {removed} entries with invalid '{field}'")
+    
+    # 4. Filter out invalid domain names (common invalid patterns)
+    invalid_domains = [
+        't.co', 'drive.google.com', 'webflow.com', 'canva.com', 
+        'prnt.sc', 'bit.ly', 'bitly.com', 'tinyurl.com', 'goo.gl',
+        'docs.google.com', 'forms.google.com', 'sheets.google.com',
+        'twitter.com', 'x.com', 'facebook.com', 'instagram.com',
+        'linkedin.com', 'youtube.com', 'ow.ly', 'buff.ly'
+    ]
+    
+    def is_valid_website(url):
+        if pd.isna(url) or not url.strip():
+            return False
+        url_lower = url.lower().strip()
+        # Check if URL contains any invalid domains
+        is_invalid = any(invalid_domain in url_lower for invalid_domain in invalid_domains)
+        if is_invalid:
+            print(f"   🚫 Invalid domain filtered: {url_lower[:50]}")
+        return not is_invalid
+    
+    before_count = len(df_filtered)
+    df_filtered = df_filtered[df_filtered['Website'].apply(is_valid_website)]
+    removed = before_count - len(df_filtered)
+    if removed > 0:
+        print(f"   🌐 Removed {removed} entries with invalid/shortened URLs")
+    
+    # 5. Filter out specific client names (exact matches, case-insensitive)
+    excluded_clients = [
+        'Somnee - Client',
+        'SCJ - Client',
+        'Thermacell - Client',
+        'Remote - Client',
+        'Reflux Gourmet - Client',
+        'Grammarly - Client',
+        'Future - Client',
+        'FinanceHQ LLC - Client',
+        'Tiktok - Client',
+        'Atlassian - Client'
+    ]
+    
+    # Create a normalized version for comparison
+    excluded_clients_lower = [name.lower().strip() for name in excluded_clients]
+    df_filtered = df_filtered[
+        ~df_filtered['Clean Up Name'].str.lower().str.strip().isin(excluded_clients_lower)
+    ]
+    
+    # 6. Filter out rows where partner name contains client/brand keywords
+    client_keywords = ['client', ' client$', 'affiliate client']
+    pattern = '|'.join(client_keywords)
+    before_count = len(df_filtered)
+    df_filtered = df_filtered[
+        ~df_filtered['Clean Up Name'].str.lower().str.contains(pattern, na=False, regex=True)
+    ]
+    removed = before_count - len(df_filtered)
+    if removed > 0:
+        print(f"   👥 Removed {removed} entries with 'client' keywords")
+    
+    # 7. Filter out descriptions with non-English text - ENHANCED
+    def has_valid_description(desc):
+        if pd.isna(desc) or not desc.strip():
+            return False
+        
+        # First check: Must have mostly Latin characters
+        latin_chars = sum(1 for c in desc if ord(c) < 128)
+        total_chars = len(desc.strip())
+        if total_chars == 0 or (latin_chars / total_chars) < 0.7:
+            return False
+        
+        # Second check: Use language detection for longer descriptions
+        if len(desc.strip()) > 50:
+            return is_english_text(desc)
+        
+        return True
+    
+    before_count = len(df_filtered)
+    df_filtered = df_filtered[df_filtered['Description'].apply(has_valid_description)]
+    removed = before_count - len(df_filtered)
+    if removed > 0:
+        print(f"   🌍 Removed {removed} entries with non-English descriptions")
+    
+    # 8. Require minimum trust score
+    min_trust_score = 20
+    before_count = len(df_filtered)
+    df_filtered = df_filtered[df_filtered['TRUST SCORE RATING'] >= min_trust_score]
+    removed = before_count - len(df_filtered)
+    if removed > 0:
+        print(f"   ⭐ Removed {removed} entries with trust score < {min_trust_score}")
+    
+    removed_count = initial_count - len(df_filtered)
+    print(f"📊 Quality filter: {initial_count} → {len(df_filtered)} publishers (removed {removed_count})")
+    
+    return df_filtered
+
 def create_weighted_content(row):
-    """Create weighted content string for TF-IDF with prioritized fields"""
+    """
+    Create weighted content string for TF-IDF with prioritized fields
+    
+    Priority Order (weights):
+    1. Industry Vertical: 10x (HIGHEST - primary matching factor)
+    2. Sub Company Vertical: 8x (VERY HIGH)
+    3. Description: 7x (HIGH - must align with meta tags/content)
+    4. Company Business Model: 6x (HIGH)
+    """
     content_parts = []
     
-    # Highest Priority: Industry Vertical (weight: 4x)
+    # HIGHEST Priority: Industry Vertical (weight: 10x)
     industry = str(row.get('Industry Vertical', '')).strip()
     if industry:
-        content_parts.extend([industry] * 4)
+        content_parts.extend([industry] * 10)
     
-    # High Priority: Sub Company Vertical (weight: 3x)
+    # VERY HIGH Priority: Sub Company Vertical (weight: 8x)
     sub_vertical = str(row.get('Sub Company Vertical', '')).strip()
     if sub_vertical:
-        content_parts.extend([sub_vertical] * 3)
+        content_parts.extend([sub_vertical] * 8)
     
-    # Medium Priority: Company Business Model (weight: 2x)
-    business_model = str(row.get('Company Business Model', '')).strip()
-    if business_model:
-        content_parts.extend([business_model] * 2)
-    
-    # Base Priority: Description (weight: 1x)
+    # HIGH Priority: Description (weight: 7x)
     description = str(row.get('Description', '')).strip()
     if description:
-        content_parts.append(description)
+        content_parts.extend([description] * 7)
+    
+    # HIGH Priority: Company Business Model (weight: 6x)
+    business_model = str(row.get('Company Business Model', '')).strip()
+    if business_model:
+        content_parts.extend([business_model] * 6)
     
     return ' '.join(content_parts)
 
 def extract_enhanced_content_from_url(url):
     """
-    Enhanced content extraction from URL focusing on actual page content:
-    1. Brand/company name from meta tags and structured data
-    2. Meta tags (title, description, keywords)
-    3. Structured data (JSON-LD, microdata)
-    4. Main content headings and text
-    5. Category/navigation keywords
+    Enhanced content extraction from URL with URL resolution and language detection
+    
+    Priority Order (weights):
+    1. Category/Industry from structured data: 10x
+    2. Meta description: 8x
+    3. Meta keywords: 7x
+    4. Title tags: 6x
+    5. Main content/features: 5x
+    6. Headings: 4x
+    7. Navigation: 3x
+    8. Brand name: 2x
     """
     try:
+        # Resolve shortened URLs first
+        original_url = url
+        url = resolve_shortened_url(url)
+        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
@@ -163,97 +367,115 @@ def extract_enhanced_content_from_url(url):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
+        # Check if page is in English (sample first 1000 characters)
+        page_text = soup.get_text()[:1000]
+        if not is_english_text(page_text):
+            print(f"⚠️ Non-English page detected, skipping: {url}")
+            return ""
+        
         content_parts = []
         
-        # 1. Extract brand/company name from various sources (highest weight: 5x)
+        # 1. HIGHEST: Extract CATEGORY/INDUSTRY keywords from structured data (weight: 10x)
+        json_ld_scripts = soup.find_all('script', type='application/ld+json')
+        for script in json_ld_scripts[:5]:
+            try:
+                data = json.loads(script.string)
+                if isinstance(data, dict):
+                    category = data.get('applicationCategory', '') or data.get('category', '')
+                    industry_type = data.get('industry', '') or data.get('@type', '')
+                    org_type = data.get('organizationType', '')
+                    
+                    if category:
+                        content_parts.extend([category] * 10)
+                        print(f"🏭 Category found: {category}")
+                    if industry_type and industry_type not in ['Organization', 'Corporation', 'WebSite']:
+                        content_parts.extend([industry_type] * 10)
+                        print(f"🏭 Industry type: {industry_type}")
+                    if org_type:
+                        content_parts.extend([org_type] * 8)
+            except:
+                pass
+        
+        # 2. VERY HIGH: Meta description (weight: 8x)
+        description = soup.find('meta', {'name': 'description'})
+        if description and description.get('content', '').strip():
+            desc_text = description.get('content').strip()
+            content_parts.extend([desc_text] * 8)
+            print(f"📝 Meta Description: {desc_text[:150]}")
+        
+        og_description = soup.find('meta', property='og:description')
+        if og_description and og_description.get('content', '').strip():
+            content_parts.extend([og_description.get('content').strip()] * 7)
+        
+        twitter_description = soup.find('meta', {'name': 'twitter:description'})
+        if twitter_description and twitter_description.get('content', '').strip():
+            content_parts.extend([twitter_description.get('content').strip()] * 7)
+        
+        # 3. HIGH: Meta keywords (weight: 7x)
+        keywords = soup.find('meta', {'name': 'keywords'})
+        if keywords and keywords.get('content', '').strip():
+            keywords_text = keywords.get('content').strip()
+            content_parts.extend([keywords_text] * 7)
+            print(f"🔑 Keywords: {keywords_text[:100]}")
+        
+        # 4. HIGH: Title tags (weight: 6x)
+        title_tag = soup.find('title')
+        if title_tag and title_tag.get_text().strip():
+            content_parts.extend([title_tag.get_text().strip()] * 6)
+            print(f"📄 Title: {title_tag.get_text().strip()[:100]}")
+        
+        og_title = soup.find('meta', property='og:title')
+        if og_title and og_title.get('content', '').strip():
+            content_parts.extend([og_title.get('content').strip()] * 5)
+        
+        # 5. MEDIUM-HIGH: Main content (weight: 5x)
+        main_content = soup.find('main') or soup.find('article') or soup.find('div', {'role': 'main'})
+        if main_content:
+            feature_sections = main_content.find_all(['ul', 'ol'])
+            for section in feature_sections[:10]:
+                section_text = section.get_text().strip()
+                if len(section_text) > 30:
+                    content_parts.extend([section_text] * 5)
+            
+            paragraphs = main_content.find_all('p')
+            for p in paragraphs[:25]:
+                text = p.get_text().strip()
+                if len(text) > 50:
+                    content_parts.extend([text] * 3)
+        
+        # 6. MEDIUM: Headings (weight: 4x for H1, 3x for H2)
+        h1_tags = soup.find_all('h1')
+        for h1 in h1_tags[:5]:
+            heading_text = h1.get_text().strip()
+            if heading_text and len(heading_text) > 3:
+                content_parts.extend([heading_text] * 4)
+        
+        h2_tags = soup.find_all('h2')
+        for h2 in h2_tags[:20]:
+            heading_text = h2.get_text().strip()
+            if heading_text and len(heading_text) > 3:
+                content_parts.extend([heading_text] * 3)
+        
+        # 7. MEDIUM: Navigation (weight: 3x)
+        nav_elements = soup.find_all(['nav', 'header'])
+        for nav in nav_elements[:5]:
+            nav_text = ' '.join([a.get_text().strip() for a in nav.find_all('a') if a.get_text().strip()])
+            if nav_text:
+                content_parts.extend([nav_text] * 3)
+        
+        # 8. LOW: Brand name (weight: 2x)
         brand_selectors = [
             soup.find('meta', property='og:site_name'),
             soup.find('meta', {'name': 'application-name'}),
-            soup.find('meta', {'name': 'apple-mobile-web-app-title'}),
-            soup.find('span', {'itemprop': 'name'}),
-            soup.find('h1', class_=re.compile(r'brand|logo|site-title', re.I))
         ]
         
         for selector in brand_selectors:
             if selector:
                 brand = selector.get('content', '') if selector.get('content') else selector.get_text()
                 if brand.strip():
-                    content_parts.extend([brand.strip()] * 5)
-                    print(f"🏢 Brand found: {brand.strip()}")
+                    content_parts.extend([brand.strip()] * 2)
+                    print(f"🏢 Brand: {brand.strip()}")
                     break
-        
-        # 2. Structured data (JSON-LD) - Very important for accurate brand/category info (weight: 4x)
-        json_ld_scripts = soup.find_all('script', type='application/ld+json')
-        for script in json_ld_scripts[:3]:
-            try:
-                data = json.loads(script.string)
-                if isinstance(data, dict):
-                    # Extract organization name and description
-                    org_name = data.get('name', '') or data.get('organizationName', '')
-                    org_desc = data.get('description', '')
-                    org_type = data.get('@type', '')
-                    
-                    if org_name:
-                        content_parts.extend([org_name] * 4)
-                        print(f"📋 Schema.org name: {org_name}")
-                    if org_desc:
-                        content_parts.extend([org_desc] * 3)
-                    if org_type:
-                        content_parts.extend([org_type] * 2)
-            except:
-                pass
-        
-        # 3. Meta tags (weight: 4x for title/description, 3x for keywords)
-        title_tag = soup.find('title')
-        if title_tag and title_tag.get_text().strip():
-            content_parts.extend([title_tag.get_text().strip()] * 4)
-            print(f"📄 Title: {title_tag.get_text().strip()[:100]}")
-        
-        og_title = soup.find('meta', property='og:title')
-        if og_title and og_title.get('content', '').strip():
-            content_parts.extend([og_title.get('content').strip()] * 4)
-        
-        description = soup.find('meta', {'name': 'description'})
-        if description and description.get('content', '').strip():
-            content_parts.extend([description.get('content').strip()] * 4)
-            print(f"📝 Description: {description.get('content').strip()[:100]}")
-        
-        og_description = soup.find('meta', property='og:description')
-        if og_description and og_description.get('content', '').strip():
-            content_parts.extend([og_description.get('content').strip()] * 3)
-        
-        keywords = soup.find('meta', {'name': 'keywords'})
-        if keywords and keywords.get('content', '').strip():
-            content_parts.extend([keywords.get('content').strip()] * 3)
-        
-        # 4. Main content headings (weight: 3x for H1, 2x for H2/H3)
-        h1_tags = soup.find_all('h1')
-        for h1 in h1_tags[:3]:  # Limit to first 3 H1s
-            heading_text = h1.get_text().strip()
-            if heading_text and len(heading_text) > 3:
-                content_parts.extend([heading_text] * 3)
-        
-        h2_h3_tags = soup.find_all(['h2', 'h3'])
-        for heading in h2_h3_tags[:10]:  # Limit to first 10 H2/H3s
-            heading_text = heading.get_text().strip()
-            if heading_text and len(heading_text) > 3:
-                content_parts.extend([heading_text] * 2)
-        
-        # 5. Category and navigation keywords (weight: 2x)
-        nav_elements = soup.find_all(['nav', 'header'])
-        for nav in nav_elements[:3]:
-            nav_text = ' '.join([a.get_text().strip() for a in nav.find_all('a') if a.get_text().strip()])
-            if nav_text:
-                content_parts.extend([nav_text] * 2)
-        
-        # 6. Main content text (weight: 1x)
-        main_content = soup.find('main') or soup.find('article') or soup.find('div', {'role': 'main'})
-        if main_content:
-            paragraphs = main_content.find_all('p')
-            for p in paragraphs[:15]:  # Limit to first 15 paragraphs
-                text = p.get_text().strip()
-                if len(text) > 50:  # Only meaningful paragraphs
-                    content_parts.append(text)
         
         final_content = ' '.join(content_parts)
         print(f"📄 Extracted {len(final_content)} characters from URL")
@@ -263,90 +485,97 @@ def extract_enhanced_content_from_url(url):
         print(f"❌ Error extracting content from URL: {e}")
         return ""
 
-def calculate_combined_score(similarity_scores, trust_scores, similarity_weight=0.6, trust_weight=0.4):
-    """
-    Combine similarity scores and trust scores with configurable weights
-    
-    Args:
-        similarity_scores: Array of TF-IDF similarity scores (0-1)
-        trust_scores: Array of Trust Score ratings
-        similarity_weight: Weight for similarity (default 0.6 = 60%)
-        trust_weight: Weight for trust score (default 0.4 = 40%)
-    
-    Returns:
-        Combined normalized scores
-    """
-    # Normalize trust scores to 0-1 range (assuming max trust score is 100)
+def calculate_combined_score(similarity_scores, trust_scores, has_rbl_brand, similarity_weight=0.6, trust_weight=0.2, rbl_weight=0.2):
+    """Combine similarity scores, trust scores, and RBL brand preference"""
     max_trust_score = 100
     normalized_trust = np.array(trust_scores) / max_trust_score
-    
-    # Normalize similarity scores (already in 0-1 range from cosine similarity)
     normalized_similarity = np.array(similarity_scores)
+    rbl_bonus = np.array(has_rbl_brand, dtype=float)
     
-    # Calculate weighted combination
-    combined_scores = (similarity_weight * normalized_similarity) + (trust_weight * normalized_trust)
+    combined_scores = (
+        (similarity_weight * normalized_similarity) + 
+        (trust_weight * normalized_trust) + 
+        (rbl_weight * rbl_bonus)
+    )
     
     return combined_scores
 
+def prioritize_rbl_publishers(publishers, min_rbl_count=20):
+    """Ensure at least min_rbl_count publishers with RBL Brand are in the results"""
+    if not publishers:
+        return publishers
+    
+    rbl_publishers = [p for p in publishers if p.get('RBL Brand', '').strip()]
+    non_rbl_publishers = [p for p in publishers if not p.get('RBL Brand', '').strip()]
+    
+    print(f"📊 RBL publishers found: {len(rbl_publishers)}, Non-RBL: {len(non_rbl_publishers)}")
+    
+    result = []
+    rbl_idx = 0
+    non_rbl_idx = 0
+    
+    while len(result) < len(publishers):
+        if rbl_idx < len(rbl_publishers):
+            result.append(rbl_publishers[rbl_idx])
+            rbl_idx += 1
+        
+        if non_rbl_idx < len(non_rbl_publishers) and len(result) < len(publishers):
+            result.append(non_rbl_publishers[non_rbl_idx])
+            non_rbl_idx += 1
+    
+    print(f"✅ Final mix: {len([p for p in result if p.get('RBL Brand', '').strip()])} RBL, {len([p for p in result if not p.get('RBL Brand', '').strip()])} non-RBL")
+    
+    return result
+
 def deduplicate_publishers(publishers):
     """
-    Deduplicate publishers based on identical data across key fields.
-    Keep the first occurrence (usually the longer/more complete name).
+    ENHANCED: Deduplicate publishers based on website URL (primary key)
+    Keep the entry with the longest/most complete name and highest trust score
     """
     if not publishers:
         return publishers
     
-    compare_fields = [
-        'TRUST SCORE RATING',
-        'Estimated Avg. Ahrefs DR',
-        'Estimated Avg. Moz DA',
-        'Estimated Avg. Semrush AS',
-        'Website',
-        'Associated Contact',
-        'Description',
-        'Industry Vertical',
-        'Company Business Model',
-        'Sub Company Vertical',
-        'RBL Brand'
-    ]
-    
-    seen_signatures = {}
-    deduplicated = []
-    removed_duplicates = []
+    # Group by normalized website URL
+    url_groups = {}
     
     for pub in publishers:
-        signature_parts = []
-        for field in compare_fields:
-            value = str(pub.get(field, '')).strip().lower()
-            
-            # Normalize URLs by removing www. and trailing slashes
-            if field == 'Website':
-                value = value.replace('www.', '').rstrip('/')
-            
-            signature_parts.append(value)
+        website = str(pub.get('Website', '')).strip().lower()
+        # Normalize URL
+        website = website.replace('www.', '').replace('http://', '').replace('https://', '').rstrip('/')
         
-        signature = tuple(signature_parts)
+        if not website:
+            continue
         
-        if signature not in seen_signatures:
-            seen_signatures[signature] = pub
-            deduplicated.append(pub)
-        else:
-            existing_pub = seen_signatures[signature]
-            existing_name = existing_pub.get('Clean Up Name', '')
-            current_name = pub.get('Clean Up Name', '')
-            
-            if len(current_name) > len(existing_name):
-                idx = deduplicated.index(existing_pub)
-                deduplicated[idx] = pub
-                seen_signatures[signature] = pub
-                removed_duplicates.append(f"Replaced '{existing_name}' with '{current_name}'")
-            else:
-                removed_duplicates.append(f"Removed duplicate '{current_name}' (kept '{existing_name}')")
+        if website not in url_groups:
+            url_groups[website] = []
+        url_groups[website].append(pub)
     
-    if removed_duplicates:
-        print(f"🔄 Deduplication removed {len(removed_duplicates)} duplicates:")
-        for msg in removed_duplicates[:5]:  # Show first 5
-            print(f"  - {msg}")
+    # For each URL group, keep the best entry
+    deduplicated = []
+    removed_count = 0
+    
+    for website, pubs in url_groups.items():
+        if len(pubs) == 1:
+            deduplicated.append(pubs[0])
+        else:
+            # Multiple entries for same website - pick the best one
+            # Priority: 1) Has RBL Brand, 2) Longest name, 3) Highest trust score
+            best_pub = max(pubs, key=lambda p: (
+                bool(p.get('RBL Brand', '').strip()),  # RBL first
+                len(str(p.get('Clean Up Name', ''))),   # Then longest name
+                p.get('TRUST SCORE RATING', 0)          # Then highest trust score
+            ))
+            
+            deduplicated.append(best_pub)
+            removed_count += len(pubs) - 1
+            
+            # Log what was removed
+            removed_names = [p.get('Clean Up Name', '') for p in pubs if p != best_pub]
+            kept_name = best_pub.get('Clean Up Name', '')
+            print(f"   🔄 Kept '{kept_name}', removed: {', '.join(removed_names)}")
+    
+    if removed_count > 0:
+        print(f"🔄 Deduplication removed {removed_count} duplicates")
     
     return deduplicated
 
@@ -361,15 +590,13 @@ def index():
 
 @app.route('/autocomplete')
 def autocomplete():
-    """Autocomplete endpoint for partner names with caching and debouncing"""
+    """Autocomplete endpoint for partner names"""
     try:
         query = request.args.get('query', '').strip().lower()
         
-        # Require at least 2 characters
         if len(query) < 2:
             return jsonify([])
         
-        # Use cached partner names if available
         if cache_data['partner_names'] is not None:
             partner_names = cache_data['partner_names']
         else:
@@ -378,15 +605,66 @@ def autocomplete():
                 return jsonify([])
             partner_names = df['Clean Up Name'].dropna().astype(str).unique().tolist()
         
-        # Filter suggestions
         suggestions = [name for name in partner_names if query in name.lower()]
         
-        # Limit to top 20 for performance
         return jsonify(sorted(suggestions[:20]))
     
     except Exception as e:
         print(f"❌ Error in autocomplete: {e}")
         return jsonify([])
+
+@app.route('/refresh_data', methods=['POST'])
+def refresh_data():
+    """Manually refresh data from Google Sheets"""
+    try:
+        cache_data['data'] = None
+        cache_data['timestamp'] = None
+        cache_data['partner_names'] = None
+        
+        print("🔄 Cache cleared manually, fetching fresh data...")
+        
+        df = get_sheet_data(force_refresh=True)
+        
+        if df.empty:
+            return jsonify({"success": False, "message": "Failed to load data from Google Sheets"}), 500
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Data refreshed successfully! Loaded {len(df)} records.",
+            "record_count": len(df),
+            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+    
+    except Exception as e:
+        print(f"❌ Error refreshing data: {e}")
+        return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
+
+@app.route('/cache_status')
+def cache_status():
+    """Get current cache status"""
+    try:
+        if cache_data['timestamp'] is None:
+            return jsonify({
+                "cached": False,
+                "message": "No data in cache"
+            })
+        
+        cache_age = (datetime.now() - cache_data['timestamp']).seconds
+        is_valid = is_cache_valid()
+        
+        return jsonify({
+            "cached": True,
+            "valid": is_valid,
+            "age_seconds": cache_age,
+            "age_minutes": round(cache_age / 60, 1),
+            "last_updated": cache_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
+            "record_count": len(cache_data['data']) if cache_data['data'] is not None else 0,
+            "cache_duration_minutes": CACHE_DURATION.seconds // 60
+        })
+    
+    except Exception as e:
+        print(f"❌ Error getting cache status: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/result', methods=['POST'])
 def result():
@@ -399,24 +677,19 @@ def result():
         if df.empty:
             return render_template('result_trust_score.html', error="Unable to load data from Google Sheets.")
         
-        # Normalize for comparison
         df['partner_normalized'] = df['Clean Up Name'].str.strip().str.lower()
         partner_normalized = partner_input.lower()
         
-        # Check if partner exists
         if partner_normalized not in df['partner_normalized'].values:
             return render_template('result_trust_score.html', error=f"Partner '{partner_input}' not found.")
         
-        # Filter data for selected partner
         selected = df[df['partner_normalized'] == partner_normalized]
         if selected.empty:
             return render_template('result_trust_score.html', error="No data found for the selected partner.")
         
-        # Calculate Trust Score (average if multiple rows)
         trust_score = selected['TRUST SCORE RATING'].mean()
         partner_display_name = selected['Clean Up Name'].iloc[0]
         
-        # Aggregate Affiliate Brands data
         affiliate_brands = (
             selected.groupby('Affiliate_Brand', as_index=False)
             .agg({
@@ -427,49 +700,50 @@ def result():
             })
         ).to_dict('records')
         
-        # Find Similar Partners using weighted TF-IDF
-        df['weighted_content'] = df.apply(create_weighted_content, axis=1)
+        df_filtered = filter_quality_publishers(df)
+        df_filtered['weighted_content'] = df_filtered.apply(create_weighted_content, axis=1)
         selected_content = create_weighted_content(selected.iloc[0])
         
-        if selected_content.strip():
+        if selected_content.strip() and not df_filtered.empty:
             try:
-                vectorizer = TfidfVectorizer(stop_words='english', max_features=1000)
-                all_content = df['weighted_content'].fillna('').tolist() + [selected_content]
+                vectorizer = TfidfVectorizer(
+                    stop_words='english', 
+                    max_features=2500,
+                    ngram_range=(1, 3),
+                    min_df=1,
+                    max_df=0.90
+                )
+                all_content = df_filtered['weighted_content'].fillna('').tolist() + [selected_content]
                 tfidf_matrix = vectorizer.fit_transform(all_content)
                 similarity_scores = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
                 
-                df_copy = df.copy()
+                df_copy = df_filtered.copy()
                 df_copy['similarity'] = similarity_scores
                 df_copy = df_copy[df_copy['partner_normalized'] != partner_normalized]
+                df_copy['has_rbl_brand'] = df_copy['RBL Brand'].apply(lambda x: bool(str(x).strip()))
                 
-                # Calculate combined score with trust score consideration
                 combined_scores = calculate_combined_score(
                     df_copy['similarity'].values,
                     df_copy['TRUST SCORE RATING'].values,
-                    similarity_weight=0.7,  # 70% weight on similarity
-                    trust_weight=0.3  # 30% weight on trust score
+                    df_copy['has_rbl_brand'].values
                 )
                 df_copy['combined_score'] = combined_scores
                 
-                # Sort by combined score
                 similar_df = df_copy.sort_values(
                     by='combined_score',
                     ascending=False
-                ).drop_duplicates(subset=['Clean Up Name']).head(50)
-                
-                print(f"🎯 Top 5 combined scores: {similar_df['combined_score'].head().tolist()}")
+                ).drop_duplicates(subset=['Clean Up Name']).head(100)
             
             except Exception as e:
                 print(f"⚠️ TF-IDF failed, using trust score fallback: {e}")
-                similar_df = df[df['partner_normalized'] != partner_normalized].sort_values(
+                similar_df = df_filtered[df_filtered['partner_normalized'] != partner_normalized].sort_values(
                     by='TRUST SCORE RATING', ascending=False
-                ).drop_duplicates(subset=['Clean Up Name']).head(50)
+                ).drop_duplicates(subset=['Clean Up Name']).head(100)
         else:
-            similar_df = df[df['partner_normalized'] != partner_normalized].sort_values(
+            similar_df = df_filtered[df_filtered['partner_normalized'] != partner_normalized].sort_values(
                 by='TRUST SCORE RATING', ascending=False
-            ).drop_duplicates(subset=['Clean Up Name']).head(50)
+            ).drop_duplicates(subset=['Clean Up Name']).head(100)
         
-        # Prepare similar partners data
         similar_partners = similar_df[[
             'Clean Up Name', 'TRUST SCORE RATING', 'Estimated Avg. Ahrefs DR',
             'Estimated Avg. Moz DA', 'Estimated Avg. Semrush AS', 'Website',
@@ -477,8 +751,9 @@ def result():
             'Company Business Model', 'Sub Company Vertical', 'RBL Brand'
         ]].to_dict('records')
         
-        # Apply deduplication
         similar_partners = deduplicate_publishers(similar_partners)
+        similar_partners = prioritize_rbl_publishers(similar_partners, min_rbl_count=20)
+        similar_partners = similar_partners[:40]
         
         return render_template(
             'result_trust_score.html',
@@ -494,30 +769,33 @@ def result():
 
 @app.route('/publisher_lookup', methods=['POST'])
 def publisher_lookup():
-    """Brand URL Lookup Result Page with Enhanced Matching and Trust Score Consideration"""
+    """Brand URL Lookup Result Page"""
     try:
         brand_url = request.form.get('brand_url', '').strip()
         print(f"🔍 Brand URL lookup: {brand_url}")
         
-        # Extract enhanced content from URL
         url_content = extract_enhanced_content_from_url(brand_url)
         if not url_content:
-            return render_template('result_brand_lookup.html', error="Unable to extract content from the URL. Please check the URL and try again.")
+            return render_template('result_brand_lookup.html', error="Unable to extract content from the URL.")
         
         df = get_sheet_data()
         if df.empty:
             return render_template('result_brand_lookup.html', error="Unable to load data from Google Sheets.")
         
-        # Create weighted content for matching
+        df = filter_quality_publishers(df)
+        
+        if df.empty:
+            return render_template('result_brand_lookup.html', error="No high-quality publishers found in the database.")
+        
         df['weighted_content'] = df.apply(create_weighted_content, axis=1)
         
         try:
             vectorizer = TfidfVectorizer(
                 stop_words='english', 
-                max_features=1500,
-                ngram_range=(1, 3),  # Include bigrams and trigrams for better matching
+                max_features=2500,
+                ngram_range=(1, 3),
                 min_df=1,
-                max_df=0.95
+                max_df=0.90
             )
             all_content = df['weighted_content'].fillna('').tolist() + [url_content]
             tfidf_matrix = vectorizer.fit_transform(all_content)
@@ -526,32 +804,35 @@ def publisher_lookup():
             df_copy = df.copy()
             df_copy['similarity'] = similarity_scores
             
-            # Calculate combined score with trust score consideration
+            min_similarity_threshold = 0.12
+            df_copy = df_copy[df_copy['similarity'] >= min_similarity_threshold]
+            
+            print(f"📊 After similarity filter: {len(df_copy)} publishers with similarity >= {min_similarity_threshold}")
+            
+            if df_copy.empty:
+                return render_template('result_brand_lookup.html', 
+                    error="No relevant publishers found for this brand.")
+            
+            df_copy['has_rbl_brand'] = df_copy['RBL Brand'].apply(lambda x: bool(str(x).strip()))
+            
             combined_scores = calculate_combined_score(
                 df_copy['similarity'].values,
                 df_copy['TRUST SCORE RATING'].values,
-                similarity_weight=0.65,  # 65% weight on content similarity
-                trust_weight=0.35  # 35% weight on trust score
+                df_copy['has_rbl_brand'].values
             )
             df_copy['combined_score'] = combined_scores
             
-            # Sort by combined score
             publishers_df = df_copy.sort_values(
                 by='combined_score',
                 ascending=False
-            ).drop_duplicates(subset=['Clean Up Name']).head(50)
-            
-            print(f"🎯 Top 5 similarity scores: {publishers_df['similarity'].head().tolist()}")
-            print(f"🏆 Top 5 trust scores: {publishers_df['TRUST SCORE RATING'].head().tolist()}")
-            print(f"⭐ Top 5 combined scores: {publishers_df['combined_score'].head().tolist()}")
+            ).drop_duplicates(subset=['Clean Up Name']).head(100)
         
         except Exception as e:
             print(f"⚠️ TF-IDF failed in brand lookup, using trust score: {e}")
             publishers_df = df.sort_values(
                 by='TRUST SCORE RATING', ascending=False
-            ).drop_duplicates(subset=['Clean Up Name']).head(50)
+            ).drop_duplicates(subset=['Clean Up Name']).head(100)
         
-        # Prepare publishers data
         publishers = publishers_df[[
             'Clean Up Name', 'TRUST SCORE RATING', 'Estimated Avg. Ahrefs DR',
             'Estimated Avg. Moz DA', 'Estimated Avg. Semrush AS', 'Website',
@@ -559,8 +840,9 @@ def publisher_lookup():
             'Company Business Model', 'Sub Company Vertical', 'RBL Brand'
         ]].to_dict('records')
         
-        # Apply deduplication
         publishers = deduplicate_publishers(publishers)
+        publishers = prioritize_rbl_publishers(publishers, min_rbl_count=20)
+        publishers = publishers[:40]
         
         return render_template('result_brand_lookup.html', publishers=publishers)
     
@@ -570,16 +852,14 @@ def publisher_lookup():
 
 @app.route('/download_csv', methods=['POST'])
 def download_csv():
-    """Download partners data as CSV with user-friendly column names"""
+    """Download partners data as CSV"""
     try:
         data = request.json.get('publishers', [])
         if not data:
             return jsonify({"error": "No data provided"}), 400
         
-        # Create DataFrame from the data
         df_export = pd.DataFrame(data)
         
-        # Rename columns to match the display names in the table
         column_mapping = {
             'Clean Up Name': 'Partner Name',
             'TRUST SCORE RATING': 'Trust Partner Score',
@@ -595,21 +875,17 @@ def download_csv():
             'RBL Brand': 'RBL Brand'
         }
         
-        # Rename columns that exist in the dataframe
         df_export = df_export.rename(columns=column_mapping)
         
-        # Reorder columns to match table display order
         desired_order = [
             'Partner Name', 'Trust Partner Score', 'Avg. Ahrefs', 'Avg. Moz', 
             'Avg. Semrush', 'URL', 'Contact', 'Description', 
             'Industry Vertical', 'Business Model', 'Company Vertical', 'RBL Brand'
         ]
         
-        # Only include columns that exist
         existing_cols = [col for col in desired_order if col in df_export.columns]
         df_export = df_export[existing_cols]
         
-        # Create CSV
         output = io.StringIO()
         df_export.to_csv(output, index=False)
         output.seek(0)
