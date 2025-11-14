@@ -66,7 +66,7 @@
             font-weight: 600;
         }
 
-        /* 🆕 NEW: Brand URL subtitle styling */
+        /* Brand URL subtitle styling */
         .brand-url-subtitle {
             text-align: center;
             color: #666;
@@ -357,7 +357,6 @@
             
             {% if error %}
                 <h1>Error</h1>
-                <!-- 🆕 NEW: Show brand URL even on error -->
                 {% if brand_url %}
                 <p class="brand-url-subtitle">
                     <span class="url-label">Searched URL:</span> 
@@ -368,7 +367,6 @@
             {% elif publishers and publishers|length > 0 %}
                 <h1>Top Publishers Matched</h1>
                 
-                <!-- 🆕 NEW: Show brand URL below title -->
                 {% if brand_url %}
                 <p class="brand-url-subtitle">
                     <span class="url-label">Searched URL:</span> 
@@ -493,7 +491,6 @@
                 </div>
             {% else %}
                 <h1>Top Publishers Matched</h1>
-                <!-- 🆕 NEW: Show brand URL even with no results -->
                 {% if brand_url %}
                 <p class="brand-url-subtitle">
                     <span class="url-label">Searched URL:</span> 
@@ -509,7 +506,16 @@
 
     <script>
         function downloadCSV() {
+            {% if publishers and publishers|length > 0 %}
             const publishers = {{ publishers|tojson }};
+            {% else %}
+            const publishers = [];
+            {% endif %}
+            
+            if (publishers.length === 0) {
+                alert('No data available to download.');
+                return;
+            }
             
             fetch('/download_csv', {
                 method: 'POST',
