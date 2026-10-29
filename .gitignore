@@ -27,3 +27,5 @@ credentials.json
 .venv311/
 *-key.json
 app_sheet_backup.py
+__pycache__/
+*.pyc

@@ -106,12 +106,15 @@ def _pick(value: str | None, allowed: list[str]) -> str | None:
 
 # --- shaping rows for the templates ---------------------------------------------------------------
 
-def to_template(p: dict, contact: str | None = None) -> dict:
+def to_template(p: dict, contact: dict | None = None) -> dict:
+    contact = contact or {}
     return {
         "Clean Up Name": p.get("name"),
         "TRUST SCORE RATING": float(p.get("score") or 0),
         "Website": p.get("website") or "",
-        "Associated Contact": contact or "",
+        "Contact Name": contact.get("name") or "",
+        "Contact Title": contact.get("title") or "",
+        "Contact Email": contact.get("email") or "",
         "Description": p.get("description") or "",
         "Industry Vertical": p.get("industry_vertical") or "",
         "Company Business Model": p.get("business_model") or "",
@@ -125,12 +128,12 @@ def to_template(p: dict, contact: str | None = None) -> dict:
     }
 
 
-def contacts_for(company_ids: list[str]) -> dict[str, str]:
+def contacts_for(company_ids: list[str]) -> dict[str, dict]:
     ids = [c for c in company_ids if c]
     if not ids:
         return {}
     try:
-        rows = q(f"""SELECT company_id, firstname, lastname, email FROM `{D}.v_hubspot_best_contact`
+        rows = q(f"""SELECT company_id, firstname, lastname, email, jobtitle FROM `{D}.v_hubspot_best_contact`
                      WHERE company_id IN UNNEST(@ids)""", ids=ids)
     except Exception as e:   # no fine-grained read access: show pages without contacts
         print(f"[contacts] unavailable: {e}")
@@ -138,7 +141,7 @@ def contacts_for(company_ids: list[str]) -> dict[str, str]:
     out = {}
     for r in rows:
         name = " ".join(x for x in (r.get("firstname"), r.get("lastname")) if x)
-        out[r["company_id"]] = f"{name} <{r['email']}>" if name and r.get("email") else (r.get("email") or name)
+        out[r["company_id"]] = {"name": name, "title": (r.get("jobtitle") or "").strip(), "email": r.get("email") or ""}
     return out
 
 
@@ -387,7 +390,8 @@ def publisher_lookup():
 CSV_COLUMNS = [("Clean Up Name", "Partner Name"), ("TRUST SCORE RATING", "Trust Partner Score"),
                ("Match", "Match"), ("Match Detail", "Why"),
                ("Estimated Avg. Ahrefs DR", "Avg. Ahrefs"), ("Estimated Avg. Moz DA", "Avg. Moz"),
-               ("Estimated Avg. Semrush AS", "Avg. Semrush"), ("Website", "URL"), ("Associated Contact", "Contact"),
+               ("Estimated Avg. Semrush AS", "Avg. Semrush"), ("Website", "URL"), ("Contact Name", "Contact Name"),
+               ("Contact Title", "Title"), ("Contact Email", "Email"),
                ("Description", "Description"), ("Industry Vertical", "Industry Vertical"),
                ("Company Business Model", "Business Model"), ("Sub Company Vertical", "Company Vertical"),
                ("RBL Brand", "RBL Brand")]

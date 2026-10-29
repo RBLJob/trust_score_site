@@ -426,7 +426,9 @@
                                     </span>
                                 </th>
                                 <th class="url-column">URL</th>
-                                <th>CONTACT</th>
+                                <th>CONTACT NAME</th>
+                                <th>TITLE</th>
+                                <th>EMAIL</th>
                                 <th>DESCRIPTION</th>
                                 <th>INDUSTRY VERTICAL</th>
                                 <th>BUSINESS MODEL</th>
@@ -452,16 +454,9 @@
                                         </a>
                                     {% endif %}
                                 </td>
-                                <td class="text-left">
-                                    {% if publisher['Associated Contact'] %}
-                                        <div class="truncate" title="{{ publisher['Associated Contact'] }}">
-                                            {{ publisher['Associated Contact'] }}
-                                            <div class="truncate-tooltip">{{ publisher['Associated Contact'] }}</div>
-                                        </div>
-                                    {% else %}
-                                        -
-                                    {% endif %}
-                                </td>
+                                <td class="text-left">{{ publisher['Contact Name'] or '-' }}</td>
+                                <td class="text-left">{{ publisher['Contact Title'] or '-' }}</td>
+                                <td class="text-left">{% if publisher['Contact Email'] %}<a href="mailto:{{ publisher['Contact Email'] }}">{{ publisher['Contact Email'] }}</a>{% else %}-{% endif %}</td>
                                 <td class="text-left">
                                     {% if publisher['Description'] %}
                                         <div class="truncate" title="{{ publisher['Description'] }}">
@@ -487,7 +482,7 @@
                                 </td>
                             </tr>
                             {% else %}
-                            <tr><td colspan="12" class="no-results">No publishers match these filters. Try setting one of them to Any.</td></tr>
+                            <tr><td colspan="14" class="no-results">No publishers match these filters. Try setting one of them to Any.</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
