@@ -23,3 +23,7 @@ credentials*.json
 credentials.json
 credentials*.json
 credentials.json
+
+.venv311/
+*-key.json
+app_sheet_backup.py
