@@ -64,7 +64,7 @@ def q(sql: str, **params) -> list[dict]:
 def names() -> dict:
     with _names_lock:
         if time.time() - _names["loaded"] > NAMES_TTL or not _names["list"]:
-            rows = q(f"""SELECT n.name, n.name_lc, n.entity_id, p.score
+            rows = q(f"""SELECT n.name, n.name_lc, n.entity_id, p.score, p.name AS display
                          FROM `{D}.trupartner_app_names` n
                          JOIN `{D}.trupartner_app_partners` p USING (entity_id)""")
             by_lc = {}
@@ -131,9 +131,16 @@ def autocomplete():
         return jsonify([])
     try:
         rows = names()["list"]   # already sorted by score, best first
-        starts = [r["name"] for r in rows if r["name_lc"].startswith(query)]
-        contains = [r["name"] for r in rows if query in r["name_lc"] and not r["name_lc"].startswith(query)]
-        return jsonify((starts + contains)[:20])
+        hits = [r for r in rows if r["name_lc"].startswith(query)] + \
+               [r for r in rows if query in r["name_lc"] and not r["name_lc"].startswith(query)]
+        seen, out = set(), []    # one suggestion per publisher, shown under its main name
+        for r in hits:
+            if r["entity_id"] not in seen:
+                seen.add(r["entity_id"])
+                out.append(r["display"] or r["name"])
+            if len(out) == 20:
+                break
+        return jsonify(out)
     except Exception as e:
         print(f"[autocomplete] {e}")
         return jsonify([])
