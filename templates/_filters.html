@@ -1,0 +1,45 @@
+<style>
+  .filter-bar { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; background: #f7f3ee;
+                border: 1px solid #e6dccf; border-radius: 10px; padding: 14px 16px; margin: 6px 0 10px; }
+  .filter-bar label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: #0A152C; }
+  .filter-bar select { padding: 8px 10px; border: 1px solid #cfc6bb; border-radius: 6px; font-size: 13px;
+                       min-width: 210px; background: #fff; color: #222; }
+  .filter-bar .check { flex-direction: row; align-items: center; gap: 6px; font-weight: 500; padding-bottom: 9px; }
+  .filter-bar button { padding: 9px 20px; background: linear-gradient(135deg, #BD5D28 0%, #8B4513 100%); color: #fff;
+                       border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
+  .filter-bar button:hover { box-shadow: 0 4px 14px rgba(139, 69, 19, 0.45); }
+  .filter-note { font-size: 12px; color: #666; margin: 0 0 14px; }
+  .match-badge { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+                 font-weight: 600; white-space: nowrap; vertical-align: middle; cursor: help; }
+  .match-proven { background: #e2f4e7; color: #1e7b3a; }
+  .match-topic  { background: #e3edfb; color: #1d5aa8; }
+  .no-results { text-align: center; color: #666; padding: 24px; }
+</style>
+<form class="filter-bar" method="post" action="{{ filters.action }}">
+  {% for k, v in filters.hidden.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  <input type="hidden" name="filtered" value="1">
+  <label>Industry Vertical
+    <select name="industry">
+      <option value="">Any</option>
+      {% for o in filters.options.industry %}<option value="{{ o }}" {% if o == filters.industry %}selected{% endif %}>{{ o }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Business Model
+    <select name="business_model">
+      <option value="">Any</option>
+      {% for o in filters.options.business_model %}<option value="{{ o }}" {% if o == filters.business_model %}selected{% endif %}>{{ o }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Company Vertical
+    <select name="company_vertical">
+      <option value="">Any</option>
+      {% for o in filters.options.company_vertical %}<option value="{{ o }}" {% if o == filters.company_vertical %}selected{% endif %}>{{ o }}</option>{% endfor %}
+    </select>
+  </label>
+  {% if filters.show_hide_current %}
+  <label class="check"><input type="checkbox" name="hide_current" value="1" {% if filters.hide_current %}checked{% endif %}>
+    Hide current {{ filters.current_brand }} partners</label>
+  {% endif %}
+  <button type="submit">Update results</button>
+</form>
+{% if filters.note %}<p class="filter-note">{{ filters.note }}</p>{% endif %}

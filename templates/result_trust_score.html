@@ -381,7 +381,8 @@
                 </div>
                 {% endif %}
 
-                {% if similar_partners and similar_partners|length > 0 %}
+                {% if filters %}{% include '_filters.html' %}{% endif %}
+                {% if similar_partners is defined %}
                 <h2>
                     Similar Publishers
                     <button class="download-csv-btn" onclick="downloadCSV()">📥 Download CSV</button>
@@ -444,7 +445,7 @@
                         <tbody>
                             {% for partner in similar_partners %}
                             <tr>
-                                <td class="text-left">{{ partner['Clean Up Name'] }}</td>
+                                <td class="text-left">{{ partner['Clean Up Name'] }}{% if partner['Match'] == 'Proven' %}<span class="match-badge match-proven" title="{{ partner['Match Detail'] }}">Proven</span>{% elif partner['Match'] == 'Topic match' %}<span class="match-badge match-topic" title="{{ partner['Match Detail'] }}">Topic match</span>{% endif %}</td>
                                 <td><strong>{{ "%.1f"|format(partner['TRUST SCORE RATING']) }}</strong></td>
                                 <td>{{ "%.1f"|format(partner['Estimated Avg. Ahrefs DR']) }}</td>
                                 <td>{{ "%.1f"|format(partner['Estimated Avg. Moz DA']) }}</td>
@@ -493,6 +494,8 @@
                                     {% endif %}
                                 </td>
                             </tr>
+                            {% else %}
+                            <tr><td colspan="12" class="no-results">No publishers match these filters. Try setting one of them to Any.</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>

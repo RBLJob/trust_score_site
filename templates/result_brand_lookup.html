@@ -364,7 +364,7 @@
                 </p>
                 {% endif %}
                 <p class="error-message">{{ error }}</p>
-            {% elif publishers and publishers|length > 0 %}
+            {% elif publishers is defined %}
                 <h1>Top Publishers Matched</h1>
                 
                 {% if brand_url %}
@@ -374,6 +374,7 @@
                 </p>
                 {% endif %}
                 
+{% if filters %}{% include '_filters.html' %}{% endif %}
                 <div class="table-header-row">
                     <button class="download-csv-btn" onclick="downloadCSV()">📥 Download CSV</button>
                 </div>
@@ -436,7 +437,7 @@
                         <tbody>
                             {% for publisher in publishers %}
                             <tr>
-                                <td class="text-left">{{ publisher['Clean Up Name'] }}</td>
+                                <td class="text-left">{{ publisher['Clean Up Name'] }}{% if publisher['Match'] == 'Proven' %}<span class="match-badge match-proven" title="{{ publisher['Match Detail'] }}">Proven</span>{% elif publisher['Match'] == 'Topic match' %}<span class="match-badge match-topic" title="{{ publisher['Match Detail'] }}">Topic match</span>{% endif %}</td>
                                 <td><strong>{{ "%.1f"|format(publisher['TRUST SCORE RATING']) }}</strong></td>
                                 <td>{{ "%.1f"|format(publisher['Estimated Avg. Ahrefs DR']) }}</td>
                                 <td>{{ "%.1f"|format(publisher['Estimated Avg. Moz DA']) }}</td>
@@ -485,6 +486,8 @@
                                     {% endif %}
                                 </td>
                             </tr>
+                            {% else %}
+                            <tr><td colspan="12" class="no-results">No publishers match these filters. Try setting one of them to Any.</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>

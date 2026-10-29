@@ -1,13 +1,18 @@
 """
 TruPartner Score website (trust-score-site) backed by BigQuery.
 
-Same pages, routes, form fields and template variables as before; the data now comes from the
-daily rbl-pipeline tables instead of the Google Sheet:
+Same pages and routes as before; the data comes from the daily rbl-pipeline tables:
   trupartner_app_names       name -> entity_id (autocomplete, lookup)
   trupartner_app_partners    one row per publisher with every displayed field
   trupartner_app_brand_perf  per-brand performance (brand table)
+  brand_advertiser_type      advertiser type of each RBL brand
   v_hubspot_best_contact     contact name/email (policy-tagged: the app's service account is a reader)
-  gemini_lite                classifies a pasted brand URL into an advertiser type
+  gemini_lite                classifies a pasted brand URL (company vertical + industry)
+
+Both result pages have filters (Industry Vertical, Business Model, Company Vertical), pre-filled
+automatically, and every result carries a "why it matched" label:
+  Proven       earned on brands of that company vertical (share >= 20% of its commission)
+  Topic match  its own website is classified in that company vertical
 
 Credentials: env GCP_SA_JSON (service account key JSON, set in Render) or local gcloud login.
 """
@@ -29,8 +34,8 @@ from google.cloud import bigquery
 PROJECT = "rbl-data-connection"
 D = f"{PROJECT}.funnel_export_rblaffiliate"
 NAMES_TTL = 3600          # reload the autocomplete list hourly (data refreshes daily)
-SIMILAR_LIMIT = 40
-ADV_MIN_SHARE = 0.2       # a publisher "promotes" a type if >= 20% of its commission is from that type
+RESULT_LIMIT = 40
+ADV_MIN_SHARE = 0.2       # "proven" = at least 20% of a publisher's commission is from that type of brand
 
 app = Flask(__name__)
 
@@ -77,7 +82,29 @@ def names() -> dict:
         return _names
 
 
-# --- shaping rows for the existing templates ------------------------------------------------------
+# --- framework option lists (filters) -------------------------------------------------------------
+
+INDUSTRIES = ["B2C", "B2B", "B2B / B2C"]
+BUSINESS_MODELS = ["Content Creator", "Content Publisher", "Product Review Sites", "Coupons / Deal Sites",
+    "Card Linked Offer (CLO) Partners", "Marketing Agency", "SEM / Paid Media Agencies", "SEO Agencies",
+    "Technology & SaaS", "AI / Tech Solutions Providers", "Tech Integrators / IT Consultants", "Affiliate Networks",
+    "Business Consultancy Firms", "E-learning Platforms", "Merchant Seller / Shopify Merchants", "Wholesale Merchant",
+    "Online Communities", "System Internal / Data Privacy", "Other"]
+SUB_CATEGORIES = ["Advertising & Marketing", "Apparel & Accessories", "Arts, Entertainment, & Recreation",
+    "Automotive / Tools", "Beauty & Personal Care", "Consumer Services", "Education", "E-commerce Tech",
+    "Financial Services", "Food & Beverage", "General / Other", "Healthcare", "Health/Wellness", "Home Services",
+    "HR & Recruitment", "Industrial & Commercial", "Interior Design / Home Organization", "Lifestyle",
+    "Logistics & Freight", "Media & Publishing", "Personal Banking/Taxes", "Personal Development", "Pets",
+    "Professional Services", "Real Estate", "Retail & E-commerce", "Sports & Fitness", "Technology & SaaS",
+    "Travel & Hospitality", "Wholesale & Retail"]
+OPTIONS = {"industry": INDUSTRIES, "business_model": BUSINESS_MODELS, "company_vertical": SUB_CATEGORIES}
+
+
+def _pick(value: str | None, allowed: list[str]) -> str | None:
+    return value if value in allowed else None
+
+
+# --- shaping rows for the templates ---------------------------------------------------------------
 
 def to_template(p: dict, contact: str | None = None) -> dict:
     return {
@@ -93,6 +120,8 @@ def to_template(p: dict, contact: str | None = None) -> dict:
         "Estimated Avg. Ahrefs DR": float(p.get("ahrefs_dr") or 0),
         "Estimated Avg. Moz DA": float(p.get("moz_da") or 0),
         "Estimated Avg. Semrush AS": float(p.get("semrush_as") or 0),
+        "Match": p.get("match_label") or "",
+        "Match Detail": p.get("match_detail") or "",
     }
 
 
@@ -114,7 +143,48 @@ def contacts_for(company_ids: list[str]) -> dict[str, str]:
 
 
 PARTNER_COLS = """entity_id, hs_object_id, name, score, website, description, industry_vertical, business_model,
-  sub_vertical, rbl_brands, ahrefs_dr, moz_da, semrush_as, publisher_category, top_advertiser_type"""
+  sub_vertical, rbl_brands, ahrefs_dr, moz_da, semrush_as, publisher_category, top_advertiser_type, advertiser_types"""
+
+
+def find_publishers(cv: str | None, ind: str | None, bm: str | None,
+                    exclude_entity: str | None = None, hide_brand: str | None = None) -> list[dict]:
+    """Publishers matching the filters, best TruPartner Score first.
+    cv  company vertical: publisher is Proven (earned on that type of brand) or a Topic match (its own site)
+    ind industry vertical: B2B or B2C also include 'B2B / B2C' (dual-audience media groups)
+    bm  business model (partner type)"""
+    return q(f"""
+        WITH pb AS (
+          SELECT bp.entity_id, STRING_AGG(bp.Affiliate_Brand, ', ' ORDER BY bp.total_commission DESC LIMIT 3) brands
+          FROM `{D}.trupartner_app_brand_perf` bp
+          JOIN `{D}.brand_advertiser_type` bt ON bt.brand = bp.Affiliate_Brand
+          WHERE bt.advertiser_type = @cv AND bp.total_commission > 0
+          GROUP BY 1),
+        base AS (
+          SELECT {PARTNER_COLS},
+            EXISTS (SELECT 1 FROM UNNEST(p.advertiser_types) t
+                    WHERE t.advertiser_type = @cv AND t.share >= {ADV_MIN_SHARE}) AS proven,
+            COALESCE(p.sub_vertical = @cv, FALSE) AS topic
+          FROM `{D}.trupartner_app_partners` p
+          WHERE (@ex IS NULL OR p.entity_id != @ex)
+            AND (@ind IS NULL OR p.industry_vertical IN (@ind, 'B2B / B2C'))
+            AND (@bm IS NULL OR p.business_model = @bm)
+            AND (@hide IS NULL OR p.entity_id NOT IN (
+                  SELECT entity_id FROM `{D}.trupartner_app_brand_perf`
+                  WHERE Affiliate_Brand = @hide AND total_commission > 0)))
+        SELECT b.*,
+          CASE WHEN @cv IS NULL THEN '' WHEN proven THEN 'Proven' WHEN topic THEN 'Topic match' END AS match_label,
+          CASE WHEN @cv IS NULL THEN ''
+               WHEN proven THEN CONCAT('Earned on ', COALESCE(pb.brands, @cv))
+               WHEN topic THEN CONCAT('Website is about ', @cv) END AS match_detail
+        FROM base b LEFT JOIN pb USING (entity_id)
+        WHERE @cv IS NULL OR proven OR topic
+        ORDER BY score DESC
+        LIMIT {RESULT_LIMIT}""", cv=cv, ind=ind, bm=bm, ex=exclude_entity, hide=hide_brand)
+
+
+def shape(rows: list[dict]) -> list[dict]:
+    contacts = contacts_for([r.get("hs_object_id") for r in rows])
+    return [to_template(r, contacts.get(r.get("hs_object_id"))) for r in rows]
 
 
 # --- routes -----------------------------------------------------------------------------------------
@@ -148,14 +218,14 @@ def autocomplete():
 
 @app.route("/result", methods=["POST"])
 def result():
-    partner_input = request.form.get("partner_name", "").strip()
+    f = request.form
+    partner_input = f.get("partner_name", "").strip()
     try:
         hit = names()["by_lc"].get(partner_input.lower())
         if not hit:
             return render_template("result_trust_score.html",
                                    error=f"Partner '{partner_input}' not found. Pick a name from the suggestions.")
         eid = hit["entity_id"]
-
         me = q(f"SELECT {PARTNER_COLS} FROM `{D}.trupartner_app_partners` WHERE entity_id = @id", id=eid)
         if not me:
             return render_template("result_trust_score.html", error="No data found for the selected partner.")
@@ -165,29 +235,26 @@ def result():
                        FROM `{D}.trupartner_app_brand_perf` WHERE entity_id = @id
                        ORDER BY total_commission DESC""", id=eid)
 
-        # similar partners: same publisher category + promotes the same advertiser type
-        # (publishers with no earnings: same industry vertical instead), sorted by TruPartner Score
-        similar = q(f"""
-            SELECT {PARTNER_COLS} FROM `{D}.trupartner_app_partners` p
-            WHERE p.entity_id != @id
-              AND (@cat IS NULL OR p.publisher_category = @cat)
-              AND (
-                (@adv IS NOT NULL AND EXISTS (SELECT 1 FROM UNNEST(p.advertiser_types) t
-                                              WHERE t.advertiser_type = @adv AND t.share >= {ADV_MIN_SHARE}))
-                OR (@adv IS NULL AND @ind IS NOT NULL AND p.industry_vertical = @ind)
-                OR (@adv IS NULL AND @ind IS NULL AND p.business_model = @bm))
-            ORDER BY p.score DESC
-            LIMIT {SIMILAR_LIMIT}""",
-            id=eid, cat=me.get("publisher_category"), adv=me.get("top_advertiser_type"),
-            ind=me.get("industry_vertical"), bm=me.get("business_model"))
+        if f.get("filtered"):
+            cv = _pick(f.get("company_vertical"), SUB_CATEGORIES)
+            ind = _pick(f.get("industry"), INDUSTRIES)
+            bm = _pick(f.get("business_model"), BUSINESS_MODELS)
+        else:   # pre-fill from the partner itself
+            cv = me.get("top_advertiser_type") or _pick(me.get("sub_vertical"), SUB_CATEGORIES)
+            ind = _pick(me.get("industry_vertical"), INDUSTRIES)
+            bm = _pick(me.get("business_model"), BUSINESS_MODELS)
 
-        contacts = contacts_for([me.get("hs_object_id")] + [s.get("hs_object_id") for s in similar])
-        similar_partners = [to_template(s, contacts.get(s.get("hs_object_id"))) for s in similar]
+        similar = shape(find_publishers(cv, ind, bm, exclude_entity=eid))
+        filters = dict(action="/result", hidden={"partner_name": me["name"]},
+                       industry=ind or "", business_model=bm or "", company_vertical=cv or "",
+                       options=OPTIONS, show_hide_current=False, hide_current=False, current_brand="",
+                       note=f"Pre-filled from {me['name']}. Change the filters and click Update results.")
         return render_template("result_trust_score.html",
                                partner_name=me["name"],
                                trust_score=float(me.get("score") or 0),
                                affiliate_brands=brands,
-                               similar_partners=similar_partners)
+                               similar_partners=similar,
+                               filters=filters)
     except Exception as e:
         print(f"[result] {type(e).__name__}: {e}")
         return render_template("result_trust_score.html", error="An unexpected error occurred.")
@@ -195,13 +262,6 @@ def result():
 
 # --- brand URL lookup ---------------------------------------------------------------------------------
 
-SUB_CATEGORIES = ["Advertising & Marketing", "Apparel & Accessories", "Arts, Entertainment, & Recreation",
-    "Automotive / Tools", "Beauty & Personal Care", "Consumer Services", "Education", "E-commerce Tech",
-    "Financial Services", "Food & Beverage", "General / Other", "Healthcare", "Health/Wellness", "Home Services",
-    "HR & Recruitment", "Industrial & Commercial", "Interior Design / Home Organization", "Lifestyle",
-    "Logistics & Freight", "Media & Publishing", "Personal Banking/Taxes", "Personal Development", "Pets",
-    "Professional Services", "Real Estate", "Retail & E-commerce", "Sports & Fitness", "Technology & SaaS",
-    "Travel & Hospitality", "Wholesale & Retail"]
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
 
@@ -257,50 +317,75 @@ BRAND_DEFS = """- Advertising & Marketing: agencies, networks, ad tech, PPC, SEO
 - Wholesale & Retail: wholesale, bulk, liquidation"""
 
 
-def classify_brand(site_text: str) -> str | None:
-    prompt = ("Classify this BRAND (an advertiser) by the market it sells into. Pick exactly ONE sub-category:\n"
-              + BRAND_DEFS + '\nReply with JSON only: {"sub_category": "..."}\n\n' + site_text)
-    rows = q(f"""SELECT REGEXP_EXTRACT(ml_generate_text_llm_result, r'"sub_category"\\s*:\\s*"([^"]+)"') t
+def classify_brand(site_text: str) -> tuple[str | None, str | None]:
+    """(company vertical, industry) of a brand from its homepage."""
+    prompt = ("Classify this BRAND (an advertiser). Pick exactly ONE sub-category for the market it sells into:\n"
+              + BRAND_DEFS
+              + "\nAnd its industry: B2C if it sells to consumers, B2B if it sells to businesses.\n"
+              + 'Reply with JSON only: {"sub_category": "...", "industry": "B2C or B2B"}\n\n' + site_text)
+    rows = q(f"""SELECT REGEXP_EXTRACT(ml_generate_text_llm_result, r'"sub_category"\\s*:\\s*"([^"]+)"') sub,
+                        REGEXP_EXTRACT(ml_generate_text_llm_result, r'"industry"\\s*:\\s*"([^"]+)"') ind
                  FROM ML.GENERATE_TEXT(MODEL `{D}.gemini_lite`, (SELECT @p AS prompt),
-                   STRUCT(0.0 AS temperature, 40 AS max_output_tokens, TRUE AS flatten_json_output))""", p=prompt)
-    t = rows[0]["t"] if rows else None
-    return t if t in SUB_CATEGORIES else None
+                   STRUCT(0.0 AS temperature, 60 AS max_output_tokens, TRUE AS flatten_json_output))""", p=prompt)
+    if not rows:
+        return None, None
+    return _pick(rows[0]["sub"], SUB_CATEGORIES), _pick(rows[0]["ind"], ["B2C", "B2B"])
+
+
+def current_brand(url: str) -> str | None:
+    """RBL brand name if this URL is one of RBL's brands (used for 'hide current partners')."""
+    rows = q(f"""SELECT brand FROM `{D}.brand_advertiser_type`
+                 WHERE website IS NOT NULL
+                   AND `{D}.fn_site_key`(website) = `{D}.fn_site_key`(@u)
+                 LIMIT 1""", u=url)
+    return rows[0]["brand"] if rows else None
 
 
 @app.route("/publisher_lookup", methods=["POST"])
 def publisher_lookup():
-    brand_url = request.form.get("brand_url", "").strip()
+    f = request.form
+    brand_url = f.get("brand_url", "").strip()
     try:
-        text = read_site(brand_url)
-        if not text:
-            return render_template("result_brand_lookup.html", brand_url=brand_url,
-                                   error="Could not read that website. Check the URL and try again.")
-        adv = classify_brand(text)
-        if not adv:
-            return render_template("result_brand_lookup.html", brand_url=brand_url,
-                                   error="Could not determine what kind of brand this is.")
-        print(f"[publisher_lookup] {brand_url} -> {adv}")
-        rows = q(f"""
-            SELECT {PARTNER_COLS} FROM `{D}.trupartner_app_partners` p
-            WHERE EXISTS (SELECT 1 FROM UNNEST(p.advertiser_types) t
-                          WHERE t.advertiser_type = @adv AND t.share >= {ADV_MIN_SHARE})
-               OR (ARRAY_LENGTH(p.advertiser_types) IS NULL AND p.sub_vertical = @adv)
-            ORDER BY p.score DESC
-            LIMIT {SIMILAR_LIMIT}""", adv=adv)
-        contacts = contacts_for([r.get("hs_object_id") for r in rows])
-        publishers = [to_template(r, contacts.get(r.get("hs_object_id"))) for r in rows]
-        if not publishers:
-            return render_template("result_brand_lookup.html", brand_url=brand_url,
-                                   error=f"No publishers found yet for {adv} brands.")
-        return render_template("result_brand_lookup.html", publishers=publishers, brand_url=brand_url)
+        if f.get("filtered"):
+            cv = _pick(f.get("company_vertical"), SUB_CATEGORIES)
+            ind = _pick(f.get("industry"), INDUSTRIES)
+            bm = _pick(f.get("business_model"), BUSINESS_MODELS)
+            detected = f.get("detected", "")
+            hide = f.get("hide_current") == "1"
+        else:
+            text = read_site(brand_url)
+            if not text:
+                return render_template("result_brand_lookup.html", brand_url=brand_url,
+                                       error="Could not read that website. Check the URL and try again.")
+            cv, ind = classify_brand(text)
+            if not cv:
+                return render_template("result_brand_lookup.html", brand_url=brand_url,
+                                       error="Could not determine what kind of brand this is.")
+            bm, hide = None, True
+            detected = cv + (f" · {ind}" if ind else "")
+            print(f"[publisher_lookup] {brand_url} -> {detected}")
+
+        brand = current_brand(brand_url)
+        publishers = shape(find_publishers(cv, ind, bm, hide_brand=brand if (hide and brand) else None))
+        note = f"Detected for this brand: {detected}. " if detected else ""
+        if brand:
+            note += f"{brand} is an RBL brand. "
+        note += "Change the filters and click Update results."
+        filters = dict(action="/publisher_lookup", hidden={"brand_url": brand_url, "detected": detected},
+                       industry=ind or "", business_model=bm or "", company_vertical=cv or "",
+                       options=OPTIONS, show_hide_current=bool(brand), hide_current=hide,
+                       current_brand=brand or "", note=note)
+        return render_template("result_brand_lookup.html", publishers=publishers, brand_url=brand_url,
+                               filters=filters)
     except Exception as e:
         print(f"[publisher_lookup] {type(e).__name__}: {e}")
         return render_template("result_brand_lookup.html", brand_url=brand_url, error="An unexpected error occurred.")
 
 
-# --- CSV download (unchanged contract: POST {"publishers": [...]}) ----------------------------------
+# --- CSV download (contract: POST {"publishers": [...]}) -------------------------------------------
 
 CSV_COLUMNS = [("Clean Up Name", "Partner Name"), ("TRUST SCORE RATING", "Trust Partner Score"),
+               ("Match", "Match"), ("Match Detail", "Why"),
                ("Estimated Avg. Ahrefs DR", "Avg. Ahrefs"), ("Estimated Avg. Moz DA", "Avg. Moz"),
                ("Estimated Avg. Semrush AS", "Avg. Semrush"), ("Website", "URL"), ("Associated Contact", "Contact"),
                ("Description", "Description"), ("Industry Vertical", "Industry Vertical"),
